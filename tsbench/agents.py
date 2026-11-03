@@ -90,6 +90,7 @@ def parallel(config: dict, deadline: float, base: Path, scratch: Path) -> list[d
         count = int(stage["count"])
         stage_start = time.monotonic()
         stage_deadline = min(deadline,stage_start+stage["seconds"])
+        worker_deadline = stage_deadline-max(15,count*3)  # reserve Herdr workspace cleanup
         free = meminfo().get("MemAvailable",0)/1048576
         pressure = psi("memory").get("avg10",0)
         if free < count*config["parallel"]["minimum_free_mib_per_agent"] or pressure > config["parallel"]["max_memory_psi_some"]:
@@ -101,7 +102,7 @@ def parallel(config: dict, deadline: float, base: Path, scratch: Path) -> list[d
         tasks = []
         try:
             with ThreadPoolExecutor(max_workers=count) as executor:
-                futures = [executor.submit(_worker,index,config,stage_deadline,base,scratch,created,prefix+str(count))
+                futures = [executor.submit(_worker,index,config,worker_deadline,base,scratch,created,prefix+str(count))
                            for index in range(count)]
                 for f in as_completed(futures):
                     tasks.append(f.result())
@@ -118,10 +119,14 @@ def parallel(config: dict, deadline: float, base: Path, scratch: Path) -> list[d
                             "telemetry":metrics})
         finally:
             telemetry.stop()
+            failed_cleanup=False
             for workspace in created:
                 try:
                     # Never stop the Herdr server; close only workspaces created by this stage.
-                    _herdr(["workspace","close",str(workspace)],deadline,4)
+                    _herdr(["workspace","close",str(workspace)],stage_deadline,4)
                 except Exception:
-                    pass
+                    failed_cleanup=True
+            if failed_cleanup and results and results[-1].get("concurrency")==count:
+                results[-1]["status"]="cleanup_incomplete"
+                results[-1]["cleanup_incomplete"]=True
     return results

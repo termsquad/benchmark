@@ -15,7 +15,7 @@ def _mean(numbers: list[float]) -> float:
 def cpu(config: dict, deadline: float) -> dict:
     p = config["cpu"]
     results = {}
-    for name, threads in (("single", 1), ("multi", max(1, __import__("os").cpu_count() or 1))):
+    for name, threads in (("single", 1), ("multi", max(1, len(__import__("os").sched_getaffinity(0))))):
         samples = []
         for _ in range(p["samples"]):
             cmd = ["sysbench","cpu","--cpu-max-prime="+str(p["max_prime"]),

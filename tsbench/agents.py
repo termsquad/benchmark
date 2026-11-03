@@ -21,6 +21,21 @@ def classify(output: str) -> str:
     return "agent_error"
 
 
+def _usage_from_codex_jsonl(output: str) -> dict | None:
+    # Retain usage counters only. Never persist prompt text or raw agent events.
+    for line in reversed(output.splitlines()):
+        try:
+            event=json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        usage=event.get("usage") if isinstance(event,dict) else None
+        if event.get("type")=="turn.completed" and isinstance(usage,dict):
+            return {key:int(value) for key,value in usage.items()
+                    if key in ("input_tokens","output_tokens","cached_input_tokens")
+                    and isinstance(value,int) and not isinstance(value,bool)}
+    return None
+
+
 def single(config: dict, deadline: float, base: Path, scratch: Path) -> dict:
     worktree = create_worktree(base,scratch,"single")
     telemetry = Telemetry().start()
@@ -31,11 +46,12 @@ def single(config: dict, deadline: float, base: Path, scratch: Path) -> dict:
     try:
         response = run_command(cmd,remaining(deadline,450),cwd=worktree,max_output=180000)
         verdict = validate_task(16,worktree)
-        outcome = ("passed" if verdict["passed"] else
+        outcome = ("passed" if verdict["passed"] and response["returncode"]==0 else
                    "failed_tests" if response["returncode"]==0 else
                    classify(response["stderr"]+"\n"+response["stdout"]))
         return {"status":outcome,"elapsed_seconds":round(time.monotonic()-start,3),
-                "validator":verdict,"surface":"codex_exec","telemetry":telemetry.stop(),
+                "validator":verdict,"surface":"codex_exec","token_usage":_usage_from_codex_jsonl(response["stdout"]),
+                "telemetry":telemetry.stop(),
                 "external_service_constrained":outcome=="rate_limited"}
     except CommandTimeout:
         return {"status":"timed_out","elapsed_seconds":round(time.monotonic()-start,3),

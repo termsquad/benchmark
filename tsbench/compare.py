@@ -20,7 +20,8 @@ def signature(item: dict) -> tuple:
     m,p = item["machine"], item["provenance"]
     return (item["suite_version"],p["suite_config_sha256"],p["fixture_sha256"],
             m["architecture"],m["os_version"],p["codex_version"],p["herdr_version"],
-            p["model"],p["reasoning_effort"])
+            p["model"],p["reasoning_effort"],m.get("tools",{}).get("node"),
+            m.get("tools",{}).get("fio"),m.get("tools",{}).get("sysbench"))
 
 
 def compare(paths: list[Path]) -> dict:
@@ -54,6 +55,27 @@ def compare(paths: list[Path]) -> dict:
         success = [r["agents"]["single"]["elapsed_seconds"] for r in group
                    if r.get("agents",{}).get("single",{}).get("status")=="passed"]
         entry["single_agent_elapsed_seconds_median"] = round(median(success),3) if success else None
+        entry["disk"] = {key: med("disk",key,"mib_per_sec") for key in
+                         ("sequential_read","sequential_write","random_read_qd1","random_write_qd1",
+                          "random_read_qd16","random_write_qd16")}
+        entry["parallel"]={}
+        for count in (4,8,16):
+            values = [stage["throughput_per_minute"]
+                      for run in group for stage in run.get("agents",{}).get("parallel",[])
+                      if stage.get("concurrency")==count and stage.get("status")=="validated"
+                      and isinstance(stage.get("throughput_per_minute"),(float,int))]
+            entry["parallel"][str(count)] = round(median(values),4) if values else None
+        prices = [(r.get("price",{}) or {}) for r in group]
+        known = [p for p in prices if isinstance(p.get("monthly_amount"),(int,float))
+                 and p["monthly_amount"]>0 and p.get("currency") and p.get("source_url")
+                 and p.get("includes_mandatory_fees") is True]
+        if len(known)==len(group) and len({p["currency"] for p in known})==1:
+            amount=round(median(p["monthly_amount"] for p in known),2)
+            entry["price"]={"amount":amount,"currency":known[0]["currency"],"basis":"recurring monthly"}
+            entry["value_at_4_agents"]=round(entry["parallel"]["4"]/amount,6) if entry["parallel"]["4"] else None
+        else:
+            entry["price"] = None
+            entry["value_at_4_agents"] = None
         output.append(entry)
     return {"cohort":list(signature(runs[0])),"providers":output,
             "warning":"At least 3 valid time-separated runs per VM are required for publication."}

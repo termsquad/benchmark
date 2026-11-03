@@ -30,7 +30,8 @@ def exclusive(root: Path):
 
 def run(config_file: Path, root: Path, *, provider: str | None = None,
         plan: str | None = None, region: str | None = None, price: float | None = None,
-        currency: str | None = None) -> dict:
+        currency: str | None = None, price_source: str | None = None,
+        includes_mandatory_fees: bool | None = None) -> dict:
     config_file=config_file.absolute()
     config=load_json(config_file)  # benchmark.yaml is a deliberately JSON-compatible YAML document
     if config["maximum_seconds"]!=2700 or sum(config["phase_seconds"].values())!=2700:
@@ -44,8 +45,9 @@ def run(config_file: Path, root: Path, *, provider: str | None = None,
             "run_id":run_id,"started_at":utc_now(),"finished_at":None,
             "elapsed_seconds":None,"status":"partial","machine":{},"price":{
                 "monthly_amount":price,"currency":currency,
-                "source_url":config.get("price",{}).get("source_url"),
-                "includes_mandatory_fees":config.get("price",{}).get("includes_mandatory_fees")},
+                "source_url":price_source or config.get("price",{}).get("source_url"),
+                "checked_at":utc_now() if price_source else None,
+                "includes_mandatory_fees":includes_mandatory_fees},
             "provenance":{"benchmark_version":__version__,"benchmark_commit":None,
                 "suite_config_sha256":sha256_file(config_file),
                 "fixture_sha256":fixture_digest(),

@@ -46,11 +46,11 @@ Run three full, eligible tests at least one hour apart. Avoid concurrent backgro
 
 ~~~bash
 tsbench compare path/to/a/results.json path/to/b/results.json
-tsbench export --output ~/benchmark-export.tar.gz
-sha256sum ~/benchmark-export.tar.gz
+tsbench export
+sha256sum ~/.local/share/tsbench/exports/benchmark-export.tar.gz
 ~~~
 
-Copy the archive to another computer, independently verify its SHA256, and keep a backup. Only then invoke the native uninstaller with the matching campaign ID and archive digest, as shown in status/export output:
+Copy the archive to another computer, independently verify its SHA256, and keep a backup. The default local archive is inside the benchmark-owned exports directory, which is removed during verified purge. Only then invoke the native uninstaller with the matching campaign ID and archive digest, as shown in status/export output:
 
 ~~~bash
 tsbench uninstall --purge --campaign CAMPAIGN_ID --verified-export SHA256

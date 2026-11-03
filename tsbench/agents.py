@@ -28,7 +28,9 @@ def _usage_from_codex_jsonl(output: str) -> dict | None:
             event=json.loads(line)
         except json.JSONDecodeError:
             continue
-        usage=event.get("usage") if isinstance(event,dict) else None
+        if not isinstance(event,dict):
+            continue
+        usage=event.get("usage")
         if event.get("type")=="turn.completed" and isinstance(usage,dict):
             return {key:int(value) for key,value in usage.items()
                     if key in ("input_tokens","output_tokens","cached_input_tokens")

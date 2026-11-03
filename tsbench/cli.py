@@ -32,7 +32,7 @@ def parser():
     cmp.add_argument("results",type=Path,nargs="+")
     sub.add_parser("status",help="Show local 3-run campaign progress")
     exp=sub.add_parser("export",help="Build a checksum-verifiable campaign archive")
-    exp.add_argument("--output",type=Path,required=True)
+    exp.add_argument("--output",type=Path,help="Archive path; defaults to managed exports directory")
     delete=sub.add_parser("uninstall",help="Remove only benchmark-owned installation assets")
     delete.add_argument("--purge",action="store_true",help="Remove local results after confirmed external export")
     delete.add_argument("--campaign")
@@ -92,7 +92,8 @@ def main(argv=None):
             output=load_json(state_file(root))
             output["ready_for_export"]=len(output["eligible_runs"])>=3
         elif args.command=="export":
-            output=export_campaign(root,args.output)
+            destination=args.output or (root/"exports"/"benchmark-export.tar.gz")
+            output=export_campaign(root,destination)
             output["instructions"]="Copy archive to a separate machine, verify SHA256 there, then invoke uninstall --purge with matching campaign and digest"
         elif args.command=="uninstall":
             output=uninstall(root,args.purge,args.campaign,args.verified_export)

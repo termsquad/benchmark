@@ -61,6 +61,9 @@ def run(config_file: Path, root: Path, *, provider: str | None = None,
         with exclusive(root):
             state=initialize(root,config["suite_version"],sha256_file(config_file))
             result["campaign_id"]=state["campaign_id"]
+            ownership_path=root/"ownership.json"
+            if ownership_path.exists():
+                result["provenance"]["benchmark_commit"]=load_json(ownership_path).get("benchmark_commit")
             section="preflight"
             elapsed=time.monotonic()
             phase_deadline=min(total_deadline,elapsed+config["phase_seconds"][section])

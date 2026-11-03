@@ -2,6 +2,7 @@
 from __future__ import annotations
 import hashlib
 import json
+import fcntl
 import os
 from pathlib import Path
 import shutil
@@ -38,6 +39,25 @@ def export_campaign(root: Path, destination: Path) -> dict:
 
 def uninstall(root: Path, purge: bool = False, campaign: str | None = None,
               verified_export: str | None = None) -> dict:
+    root = root.expanduser().absolute()
+    expected = (Path.home()/".local"/"share"/"tsbench").absolute()
+    if root!=expected or root.is_symlink():
+        raise BenchmarkError("Uninstall refuses non-canonical state root")
+    if not root.exists():
+        return {"status":"already_uninstalled","remaining_results":False}
+    lock=root/".lock"
+    if lock.is_symlink():
+        raise BenchmarkError("Refusing symlinked benchmark lock")
+    with lock.open("a+") as handle:
+        try:
+            fcntl.flock(handle,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise BenchmarkError("Refusing uninstall while a benchmark is active")
+        return _uninstall_locked(root,purge,campaign,verified_export)
+
+
+def _uninstall_locked(root: Path, purge: bool, campaign: str | None,
+                      verified_export: str | None) -> dict:
     root = root.expanduser().absolute()
     expected = (Path.home()/".local"/"share"/"tsbench").absolute()
     if root!=expected or root.is_symlink():

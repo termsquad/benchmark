@@ -55,7 +55,10 @@ def main(argv=None):
                 shutil.copy2(config,pinned)
             elif sha256_file(pinned)!=sha256_file(config):
                 raise BenchmarkError("Pinned campaign configuration differs")
-            atomic_json(root/"ownership.json",{"root":str(root),"managed":["benchmark.yaml","campaign.json",
+            from .common import run_command
+            revision=run_command(["git","-C",str(config.parent),"rev-parse","HEAD"],5) if shutil.which("git") else {"returncode":1}
+            benchmark_commit=revision.get("stdout","").strip() if revision["returncode"]==0 else None
+            atomic_json(root/"ownership.json",{"root":str(root),"benchmark_commit":benchmark_commit,"managed":["benchmark.yaml","campaign.json",
                 "results","scratch","tmp","venv","ownership.json"]})
             output={"status":"prepared","campaign_id":state["campaign_id"],
                     "config":str(pinned),"missing_tools":verify_host(inventory(root),True)}

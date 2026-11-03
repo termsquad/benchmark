@@ -21,7 +21,9 @@ def export_campaign(root: Path, destination: Path) -> dict:
                 raise BenchmarkError("Export blocked: corrupted result evidence")
     destination = destination.expanduser().absolute()
     if destination.is_relative_to(root.resolve()):
-        raise BenchmarkError("Export destination must be outside the uninstall root")
+        owned_path(destination,root)
+        if not destination.is_relative_to((root/"exports").absolute()):
+            raise BenchmarkError("Managed export destination must be under the owned exports folder")
     destination.parent.mkdir(parents=True,exist_ok=True)
     if destination.exists():
         raise BenchmarkError("Destination already exists")
@@ -75,7 +77,7 @@ def _uninstall_locked(root: Path, purge: bool, campaign: str | None,
             raise BenchmarkError("Purge requires a matching externally verified SHA256 receipt")
     # Only remove manifest-owned state under our fixed private root. Never touch global
     # Codex, Herdr, Python, Node, sysbench, fio, auth stores or third-party projects.
-    for name in ("scratch","tmp","venv"):
+    for name in ("scratch","tmp","venv") + (("exports",) if purge else ()):
         path=owned_path(root/name,root)
         if path.exists():
             if path.is_dir(): shutil.rmtree(path)

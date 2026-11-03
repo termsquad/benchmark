@@ -26,6 +26,8 @@ def parser():
     for flag in ("provider","plan","region","currency"):
         run.add_argument("--"+flag)
     run.add_argument("--price-monthly",type=float)
+    run.add_argument("--price-source",help="URL documenting recurring monthly plan cost")
+    run.add_argument("--includes-mandatory-fees",action="store_true",default=None)
     cmp=sub.add_parser("compare",help="Compare verified JSON results in compatible cohorts")
     cmp.add_argument("results",type=Path,nargs="+")
     sub.add_parser("status",help="Show local 3-run campaign progress")
@@ -78,7 +80,8 @@ def main(argv=None):
             if not state_file(root).exists():
                 raise BenchmarkError("Run tsbench setup first")
             result=run_benchmark(config,root,provider=args.provider,plan=args.plan,
-                                 region=args.region,price=args.price_monthly,currency=args.currency)
+                                 region=args.region,price=args.price_monthly,currency=args.currency,
+                                 price_source=args.price_source,includes_mandatory_fees=args.includes_mandatory_fees)
             output={"status":result["status"],"run_id":result["run_id"],"results":str(root/"results"/result["run_id"])}
         elif args.command=="compare":
             output=compare_runs(args.results)

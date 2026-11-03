@@ -66,7 +66,7 @@ def uninstall(root: Path, purge: bool = False, campaign: str | None = None,
     if purge:
         owned_path(result_dir,root)
         if result_dir.exists(): shutil.rmtree(result_dir)
-        for file in ("campaign.json","ownership.json"):
+        for file in ("campaign.json","ownership.json","benchmark.yaml",".lock"):
             path=owned_path(root/file,root)
             path.unlink(missing_ok=True)
         if not any(root.iterdir()): root.rmdir()

@@ -59,6 +59,15 @@ def version(binary: str) -> str | None:
         return None
 
 
+def _filesystem_type(workspace: Path) -> str | None:
+    try:
+        result=subprocess.run(["findmnt","-n","-o","FSTYPE","-T",str(workspace)],
+                              capture_output=True,text=True,timeout=4)
+        return result.stdout.strip() if result.returncode==0 else None
+    except (OSError,subprocess.TimeoutExpired):
+        return None
+
+
 def inventory(workspace: Path) -> dict:
     release = os_release()
     usage = shutil.disk_usage(workspace)
@@ -75,7 +84,7 @@ def inventory(workspace: Path) -> dict:
             "vcpu":os.cpu_count(),"cpu_model":cpu,
             "ram_bytes":meminfo().get("MemTotal"),"memory_available_bytes":meminfo().get("MemAvailable"),
             "swap_bytes":meminfo().get("SwapTotal"),"disk_bytes":usage.total,
-            "disk_free_bytes":usage.free,"filesystem":str(workspace.resolve()),
+            "disk_free_bytes":usage.free,"filesystem":_filesystem_type(workspace),
             "pressure":{"cpu":psi("cpu"),"memory":psi("memory"),"io":psi("io")},
             "tools":{name:version(name) for name in ("python3","sysbench","fio","git","node","codex","herdr")}}
 

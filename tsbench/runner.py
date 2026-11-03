@@ -8,7 +8,7 @@ import shutil
 import time
 import uuid
 from . import __version__
-from .common import BenchmarkError, CommandTimeout, load_json, remaining, sha256_file, utc_now
+from .common import BenchmarkError, CommandTimeout, load_json, remaining, sha256_file, utc_now, run_command
 from .inventory import inventory, verify_host
 from .fixtures import fixture_digest, create_base
 from .hardware import cpu, memory, disk
@@ -69,6 +69,12 @@ def run(config_file: Path, root: Path, *, provider: str | None = None,
             result["provenance"]["codex_version"]=tools.get("codex")
             result["provenance"]["herdr_version"]=tools.get("herdr")
             errors=verify_host(machine,require_agents=True)
+            if not errors:
+                for label,argv in (("Codex auth",["codex","login","status"]),
+                                   ("Herdr server",["herdr","status","server"])):
+                    check=run_command(argv,remaining(phase_deadline,12))
+                    if check["returncode"]!=0:
+                        errors.append(label+" unavailable")
             if errors:
                 result["errors"].extend(errors)
                 result["status"]="invalid_environment"
@@ -95,7 +101,10 @@ def run(config_file: Path, root: Path, *, provider: str | None = None,
                         result["agents"][section]=value
                     else:
                         result[section]=value
-                    result["phases"][section]={"status":"complete","elapsed_seconds":round(time.monotonic()-phase_start,2)}
+                    phase_ok = (value.get("status")=="passed" if section=="single" else
+                                any(x.get("status")=="validated" for x in value) if section=="parallel" else True)
+                    result["phases"][section]={"status":"complete" if phase_ok else "inconclusive",
+                                                "elapsed_seconds":round(time.monotonic()-phase_start,2)}
                 except Exception as exc:
                     all_ok=False
                     result["phases"][section]={"status":"failed","reason":type(exc).__name__,
@@ -121,7 +130,7 @@ def run(config_file: Path, root: Path, *, provider: str | None = None,
             result["status"]="partial"
         result["finished_at"]=utc_now()
         result["elapsed_seconds"]=round(time.monotonic()-started,3)
-        if result["elapsed_seconds"]>2700:
+        if result["elapsed_seconds"]>=2700:
             result["status"]="timed_out"
             result["warnings"].append("global_deadline_exceeded")
         write_artifacts(out,result,config_file)

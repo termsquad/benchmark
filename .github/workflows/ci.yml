@@ -21,6 +21,6 @@ jobs:
     container: ubuntu:26.04
     steps:
       - uses: actions/checkout@v4
-      - run: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y python3
+      - run: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y python3 git nodejs
       - run: python3 -m compileall -q tsbench
       - run: python3 -m unittest discover -s tests -v

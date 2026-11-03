@@ -2,10 +2,13 @@
 from __future__ import annotations
 import hashlib
 import json
+import threading
 from pathlib import Path
 from .common import BenchmarkError, require_success, run_command
 
 # Tasks and validators are runner-owned, never placed in the writable worktree.
+_git_lock = threading.Lock()
+
 SPECS = [
  ("double","Return twice the numeric argument.","assert.equal(f(4),8);assert.equal(f(-3),-6)"),
  ("sum","Return the sum of all numbers in an array.","assert.equal(f([1,2,3]),6);assert.equal(f([]),0)"),
@@ -56,7 +59,9 @@ def create_base(root: Path) -> Path:
 
 def create_worktree(base: Path, root: Path, label: str) -> Path:
     target = root / ("task-" + label)
-    require_success(run_command(["git","-C",str(base),"worktree","add","-q","--detach",str(target),"HEAD"],15),"git worktree add")
+    # Git worktree metadata is shared, so serialize its mutations across agents.
+    with _git_lock:
+        require_success(run_command(["git","-C",str(base),"worktree","add","-q","--detach",str(target),"HEAD"],15),"git worktree add")
     return target
 
 

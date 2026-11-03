@@ -16,7 +16,7 @@ jobs:
       - run: python -m unittest discover -s tests -v
       - run: python -m pip install .
       - run: sudo apt-get update && sudo apt-get install -y sysbench fio
-      - run: python tests/smoke_hardware.py
+      - run: PYTHONPATH=. python tests/smoke_hardware.py
       - name: Check isolated install and status
         run: |
           mkdir -p "$RUNNER_TEMP/bench-home"
@@ -31,4 +31,4 @@ jobs:
       - run: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y python3 git nodejs sysbench fio
       - run: python3 -m compileall -q tsbench
       - run: python3 -m unittest discover -s tests -v
-      - run: python3 tests/smoke_hardware.py
+      - run: PYTHONPATH=. python3 tests/smoke_hardware.py

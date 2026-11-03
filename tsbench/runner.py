@@ -119,7 +119,7 @@ def run(config_file: Path, root: Path, *, provider: str | None = None,
             single_ok=result["agents"].get("single",{}).get("status")=="passed"
             stages=result["agents"].get("parallel",[])
             valid_stage=any(s.get("status")=="validated" for s in stages)
-            constrained=any(s.get("status")=="externally_constrained" for s in stages)
+            constrained=any(s.get("status") in ("externally_constrained","cleanup_incomplete") for s in stages)
             result["status"]="complete" if all_ok and single_ok and valid_stage and not constrained else "partial"
             return result
     except (KeyboardInterrupt,Exception) as exc:

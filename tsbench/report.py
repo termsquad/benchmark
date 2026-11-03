@@ -51,6 +51,7 @@ def render(result: dict) -> str:
 
 def write_artifacts(folder: Path, result: dict, config_file: Path) -> None:
     folder.mkdir(parents=True,exist_ok=True)
+    (folder/'raw').mkdir(exist_ok=True)
     atomic_json(folder/"results.json",result)
     (folder/"report.md").write_text(render(result),encoding="utf-8")
     manifest = {"run_id":result["run_id"],"suite_version":result["suite_version"],

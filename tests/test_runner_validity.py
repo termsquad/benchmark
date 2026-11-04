@@ -3,6 +3,7 @@ import tempfile
 import unittest
 import io
 import json
+import time
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
@@ -10,10 +11,32 @@ from unittest.mock import patch
 from tsbench.common import load_json
 from tsbench.runner import run
 from tsbench.cli import main
-from tsbench.agents import classify
+from tsbench.agents import classify, _worker
 
 
 class RunValidityTests(unittest.TestCase):
+    def test_herdr_trusts_only_the_generated_fixture_and_worktree(self):
+        base = Path('/tmp/tsbench.test/fixture-base')
+        worktree = Path('/tmp/tsbench.test/task-01')
+        calls = []
+        def herdr(args, *unused):
+            calls.append(args)
+            if args[:2] == ["workspace", "create"]:
+                return {"result": {"workspace": {"workspace_id": "w1"},
+                                   "root_pane": {"pane_id": "w1:p1"}}}
+            return {}
+        with patch("tsbench.agents.create_worktree", return_value=worktree), \
+             patch("tsbench.agents._herdr", side_effect=herdr), \
+             patch("tsbench.agents.validate_task", return_value={"passed": True}):
+            result = _worker(0, {"model": "gpt-6.1-terra", "reasoning_effort": "xhigh"},
+                             time.monotonic()+60, base, base.parent, [], "tsb")
+        self.assertEqual(result["status"], "passed")
+        start = next(args for args in calls if args[:2] == ["agent", "start"])
+        override = next(arg for arg in start if arg.startswith("projects="))
+        self.assertEqual(override, "projects={" + json.dumps(str(base)) +
+                         '={trust_level="trusted"},' + json.dumps(str(worktree)) +
+                         '={trust_level="trusted"}}')
+
     def test_herdr_wrapped_authentication_error_remains_external(self):
         self.assertEqual(classify("Herdr command failed: authentication_error"),
                          "authentication_error")

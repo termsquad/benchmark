@@ -85,9 +85,13 @@ def _worker(index: int, config: dict, deadline: float, base: Path, scratch: Path
         workspace = data["workspace"]["workspace_id"]
         pane = data["root_pane"]["pane_id"]
         created.append(workspace)
+        # Codex identifies a Git worktree's shared fixture base as the project
+        # root. An inline TOML table avoids dotted-path parsing of paths with dots.
+        trust = ("projects={"+json.dumps(str(base))+'={trust_level="trusted"},'+
+                 json.dumps(str(worktree))+'={trust_level="trusted"}}')
         _herdr(["agent","start",name,"--kind","codex","--pane",pane,"--timeout","25000",
                 "--","-m",config["model"],"-c",
-                'model_reasoning_effort="'+config["reasoning_effort"]+'"',
+                'model_reasoning_effort="'+config["reasoning_effort"]+'"',"-c",trust,
                 "--sandbox","workspace-write","--ask-for-approval","never"],deadline,32)
         wait_ms = max(3000,int(remaining(deadline,360)*1000)-3000)
         _herdr(["agent","prompt",name,task_prompt(index),"--wait","--timeout",str(wait_ms)],deadline,wait_ms/1000+2)

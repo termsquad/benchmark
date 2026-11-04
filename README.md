@@ -1,13 +1,15 @@
 # TermSquad Benchmark
 
-Reproducible VM benchmarking designed for actual AI coding agents using external models. Measure CPU, RAM **read/write**, disk **sequential/random read/write**, and Codex/Herdr agent concurrency on Ubuntu 24.04 or 26.04 LTS.
+Reproducible VM benchmarking for real AI coding agents. **v1.1** measures CPU, cache-exceeding STREAM-style RAM throughput, fio disk sequential/random/mixed I/O and Codex/Herdr multi-file coding workloads on Ubuntu 24.04 or 26.04 LTS.
+
+**Important:** The v1 campaign was stopped after one eligible run on each of Netcup and Contabo. Those runs are preliminary historical evidence, **not** publication-ready rankings. v1.1 is a separate statistical cohort and must not overwrite the v1 evidence.
 
 **Warning:** this is an early implementation. It has not yet been validated through a complete 45-minute run on both supported Ubuntu releases. Do not publish provider rankings based solely on unverified runs.
 
 ## Requirements
 
 - Dedicated, disposable test VM with Ubuntu Server 24.04 or 26.04 LTS on x86_64
-- Python 3, python3-venv, git, Node.js, sysbench, fio, Codex CLI, Herdr
+- Python 3, python3-venv, **gcc with OpenMP/libgomp**, git, Node.js, sysbench, fio, Codex CLI, Herdr
 - Working Codex authentication and access to **gpt-6.1-terra** at **xhigh**
 - At least 6 GiB free storage for the fio file and safety reserve; enough memory for the selected concurrency stage
 - Preinstalled tools. The timed run never invokes apt or installs packages.
@@ -56,6 +58,8 @@ Copy the archive to another computer, independently verify its SHA256, and keep 
 tsbench uninstall --purge --campaign CAMPAIGN_ID --verified-export SHA256
 ~~~
 
+To cancel an incomplete campaign safely, use `tsbench abort` **before** export, then after off-VM checksum verification, use `tsbench uninstall --purge --aborted --campaign CAMPAIGN_ID --verified-export SHA256`. This works even after only one eligible run. No scheduler or daemon is required.
+
 Without --purge, uninstall removes benchmark-owned installation assets conservatively while **retaining local results**. Pre-existing Node, Codex, Herdr, sysbench, fio and credentials are never removed. Source checkouts cloned by the operator remain operator-owned.
 
 **The machine cannot cryptographically prove that a remote copy exists.** The off-VM controller must verify the external archive and provide the matching digest. Do not use --purge without that external verification.
@@ -63,10 +67,10 @@ Without --purge, uninstall removes benchmark-owned installation assets conservat
 ## Metrics
 
 - CPU: sysbench events/s single and multi.
-- RAM: sysbench MiB/s read and write.
-- Disk: fio sequential MiB/s, random 4K IOPS, p50/p95/p99 latency, queue depth 1 and 16.
-- Coding: immutable Node validators for a single Codex task.
-- Concurrency: 4, 8 and up to 16 Herdr-managed interactive Codex agents, task pass fraction and completed tasks/min.
+- RAM: fixed-source STREAM-style copy/scale/add/triad MiB/s, single and effective multi-vCPU, with a dataset larger than last-level cache. Not the official STREAM binary.
+- Disk: fio sequential MiB/s, random 4K IOPS, p50/p95/p99 latency, queue depth 1 and 16, and 70/30 random read/write mixed IOPS.
+- Coding: real multi-file Node.js API and application scenarios with immutable runner-owned validators. Legacy micro-tasks are retained only as smoke checks.
+- Concurrency: 4, 8 and up to 16 Herdr-managed interactive Codex agents, bounded successive task queues, task pass fraction, completed tasks/min and an explicit insufficient-duration status.
 - Telemetry: CPU load, memory/swap use, Linux pressure stall counters and OOM events.
 
 No arbitrary combined score. The LLM may interpret measurements but may not modify them. Pricing is optional operator-supplied metadata, never derived from IP address or provider naming.
@@ -75,9 +79,9 @@ No arbitrary combined score. The LLM may interpret measurements but may not modi
 
 All fio tests run against a newly created **regular file** inside a private benchmark scratch directory. No /dev raw block devices are touched. Temporary task worktrees are isolated. Herdr global server, external sessions and authentication are preserved.
 
-Current limitations: the reference agent tasks intentionally have low complexity; interactive Herdr/ Codex behavior and server versions vary, and CLI flags must be validated against installed versions. A passing stage is **not** proof of the maximum number of agents a VM can support. Current unit tests do not replace real Linux E2E runs.
+Current limitations: even multi-file coding fixtures are simplified compared with production repositories; interactive Herdr/Codex behavior and server versions vary and CLI flags must be validated against installed versions. A passing stage is **not** proof of the maximum number of agents a VM can support. Current unit tests do not replace real Linux E2E runs.
 
-See [technical specification](docs/benchmark-v1-spec.md) for the full measurement, safety and publication contract.
+See [v1.1 specification](docs/benchmark-v1.1-spec.md) for the updated contract and [v1 specification](docs/benchmark-v1-spec.md) for historical provenance.
 
 ## Development
 

@@ -11,6 +11,7 @@ from . import __version__
 from .common import BenchmarkError, CommandTimeout, load_json, remaining, sha256_file, utc_now, run_command
 from .inventory import inventory, verify_host, herdr_server_ready
 from .fixtures import fixture_digest, create_base
+from .real_tasks import digest as real_fixture_digest, create_real_base
 from .hardware import cpu, memory, disk
 from .agents import single, parallel
 from .campaign import initialize, record
@@ -50,7 +51,7 @@ def run(config_file: Path, root: Path, *, provider: str | None = None,
                 "includes_mandatory_fees":includes_mandatory_fees},
             "provenance":{"benchmark_version":__version__,"benchmark_commit":None,
                 "suite_config_sha256":sha256_file(config_file),
-                "fixture_sha256":fixture_digest(),
+                "fixture_sha256":real_fixture_digest() if config.get("agent_workload")=="real" else fixture_digest(),
                 "codex_version":None,"herdr_version":None,
                 "model":config["model"],"reasoning_effort":config["reasoning_effort"]},
             "cpu":{},"memory":{},"disk":{},"agents":{"single":{},"parallel":[]},
@@ -103,7 +104,7 @@ def run(config_file: Path, root: Path, *, provider: str | None = None,
             if machine["pressure"]["memory"].get("avg10",0)>20:
                 result["warnings"].append("environment_contended")
             result["phases"][section]={"status":"complete","elapsed_seconds":round(time.monotonic()-elapsed,2)}
-            base=create_base(scratch)
+            base=create_real_base(scratch) if config.get("agent_workload")=="real" else create_base(scratch)
             all_ok=True
             for section,fn in (("cpu",cpu),("memory",memory),("disk",disk),
                                ("single",single),("parallel",parallel)):

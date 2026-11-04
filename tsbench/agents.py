@@ -11,7 +11,7 @@ from .fixtures import task_prompt, create_worktree, validate_task
 from .telemetry import Telemetry
 from .inventory import meminfo, psi
 from . import real_tasks
-from .activity import HerdrActivityMonitor, sustained_working_seconds
+from .activity import HerdrActivityMonitor, sustained_working_seconds, activity_statistics
 
 
 def classify(output: str) -> str:
@@ -313,8 +313,9 @@ def parallel(config: dict, deadline: float, base: Path, scratch: Path,
                     atomic_json(raw_dir/("agents-"+str(count)+"-activity.json"),
                                 {"stage_start_monotonic":stage_start,"worker_names":names,
                                  "minimum_active":needed,**activity_data})
-                sustained_seconds=sustained_working_seconds(activity_data.get("samples",[]),tasks,
-                                                             names,stage_start,needed)
+                occupancy=activity_statistics(activity_data.get("samples",[]),tasks,
+                                              names,stage_start,elapsed,needed)
+                sustained_seconds=occupancy["qualifying_seconds"]
                 outcomes=[task for worker in tasks for task in worker.get("task_results",[])]
                 task_counts=dict(Counter(t.get("status","unknown") for t in outcomes))
                 worker_counts=dict(Counter(w.get("status","unknown") for w in tasks))
@@ -326,10 +327,28 @@ def parallel(config: dict, deadline: float, base: Path, scratch: Path,
             status = ("externally_constrained" if constrained else
                       "failed_host" if (metrics["oom_kills"] or 0)>0 else
                       "inconclusive" if metrics["oom_kills"] is None else
-                      "inconclusive_telemetry" if real_mode and not (activity_data.get("available") and activity_data.get("complete")) else
-                      "insufficient_sustained_load" if real_mode and sustained_seconds<minimum else
-                      "validated" if attempted>=count and passed/max(attempted,1)>=.75 else "inconclusive")
-            results.append({"concurrency":count,"status":status,"passed":passed,
+                      "inconclusive_telemetry" if real_mode and not (
+                          activity_data.get("available") and activity_data.get("complete")
+                          and occupancy["telemetry_complete"]) else
+                      "inconclusive" if attempted == 0 else
+                      "measured")
+            # The benchmark can measure a machine that cannot maintain a target.
+            # Capacity is a measured outcome, never a prerequisite for a valid run.
+            pass_fraction=passed/max(attempted,1)
+            capacity_status = (
+                "unattributed_external_constraint" if constrained else
+                "resource_limited_guest_oom" if (metrics.get("oom_kills") or 0)>0 else
+                "instrumentation_incomplete" if status=="inconclusive_telemetry" else
+                "not_measured" if attempted==0 else
+                "sustained" if (sustained_seconds>=minimum and pass_fraction>=0.75) else
+                "below_target_observed"
+            )
+            results.append({"concurrency":count,"status":status,
+                            "measurement_valid":status=="measured" or status=="failed_host",
+                            "capacity_status":capacity_status,
+                            "pass_fraction":round(pass_fraction,4),
+                            "activity_statistics":occupancy if real_mode else None,
+                            "passed":passed,
                             "attempted":attempted,"workload":"multi_file" if real_mode else "micro_smoke",
                             "minimum_sustained_seconds":minimum,
                             "observed_sustained_seconds":round(sustained_seconds,3),

@@ -144,16 +144,34 @@ def disk(config: dict, deadline: float, scratch: Path, raw_dir: Path | None = No
         _save_raw(raw_dir,"fio-prepare.json",json.dumps(_sanitize_fio(json.loads(prefill),target),indent=2)+"\n")
         jobs = [("sequential_read","read","1M",4),("sequential_write","write","1M",4),
                 ("random_read_qd1","randread","4k",1),("random_write_qd1","randwrite","4k",1),
-                ("random_read_qd16","randread","4k",16),("random_write_qd16","randwrite","4k",16)]
+                ("random_read_qd16","randread","4k",16),("random_write_qd16","randwrite","4k",16),
+                ("mixed_random_70r30w_qd16","randrw","4k",16)]
         for name, rw, bs, qd in jobs:
             cmd = ["fio","--name="+name,"--filename="+str(target),"--size="+str(size_mib)+"M",
                    "--rw="+rw,"--bs="+bs,"--iodepth="+str(qd),"--numjobs=1","--direct=1",
                    "--ioengine="+p["ioengine"],"--time_based=1",
                    "--runtime="+str(p["runtime_seconds"]),"--ramp_time="+str(p["ramp_seconds"]),
                    "--output-format=json","--group_reporting=1"]
+            if rw=="randrw":
+                cmd.append("--rwmixread="+str(p["mixed_read_percent"]))
             raw = require_success(run_command(cmd,remaining(deadline,p["runtime_seconds"]+p["ramp_seconds"]+20)), "fio "+name)
             parsed = json.loads(raw)
             _save_raw(raw_dir,"fio-"+name+".json",json.dumps(_sanitize_fio(parsed,target),indent=2)+"\n")
+            if rw=="randrw":
+                def metrics(section: dict) -> dict:
+                    percent=(section.get("clat_ns") or {}).get("percentile",{})
+                    return {"iops":round(float(section.get("iops",0)),3),
+                            "mib_per_sec":round(float(section.get("bw_bytes",0))/1048576,3),
+                            "latency_p95_ms":round(float(percent.get("95.000000",0))/1e6,4),
+                            "latency_p99_ms":round(float(percent.get("99.000000",0))/1e6,4)}
+                read=metrics(parsed["jobs"][0]["read"])
+                write=metrics(parsed["jobs"][0]["write"])
+                if read["iops"]<=0 or write["iops"]<=0:
+                    raise BenchmarkError("Mixed fio must perform both reads and writes")
+                results[name]={"read":read,"write":write,
+                               "total_iops":round(read["iops"]+write["iops"],3),
+                               "read_percent":p["mixed_read_percent"],"block_size":bs,"iodepth":qd}
+                continue
             job = parsed["jobs"][0]["read" if "read" in rw else "write"]
             clat = job.get("clat_ns") or {}
             pct = clat.get("percentile",{})

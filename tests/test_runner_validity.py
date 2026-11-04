@@ -185,6 +185,7 @@ class RunValidityTests(unittest.TestCase):
              patch("tsbench.runner.verify_host", return_value=[]), \
              patch("tsbench.runner.run_command", return_value={"returncode": 0, "stdout": '{"running": true}'}), \
              patch("tsbench.runner.create_base", return_value=Path(tmp)), \
+             patch("tsbench.runner.create_real_base",return_value=Path(tmp)), \
              patch("tsbench.runner.cpu", return_value={}), \
              patch("tsbench.runner.memory", return_value={"status":"validated"}), \
              patch("tsbench.runner.disk", return_value={}), \

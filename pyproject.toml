@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "termsquad-benchmark"
+version = "1.1.4"
+description = "Reproducible VPS benchmarks for real AI coding agents"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "TermSquad"}]
+dependencies = []
+
+[project.scripts]
+tsbench = "tsbench.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["tsbench*"]
+
+[tool.setuptools.package-data]
+tsbench = ["stream.c"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

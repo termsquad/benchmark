@@ -62,6 +62,11 @@ def main(argv=None):
                 raise BenchmarkError("Pinned campaign configuration differs")
             atomic_json(root/"ownership.json",{"root":str(root),"benchmark_commit":benchmark_commit,"managed":["benchmark.yaml","campaign.json",
                 "results","scratch","tmp","venv","ownership.json"]})
+            from .hardware import build_memory_binary
+            memory_binary=root/"bin"/"tsbench-stream"
+            if not memory_binary.exists():
+                memory_build=build_memory_binary(memory_binary)
+                atomic_json(root/"memory-build.json",memory_build)
             output={"status":"prepared","campaign_id":state["campaign_id"],
                     "config":str(pinned),"missing_tools":verify_host(inventory(root),True)}
         elif args.command=="doctor":

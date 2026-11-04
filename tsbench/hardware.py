@@ -116,7 +116,7 @@ def memory(config: dict, deadline: float, raw_dir: Path | None = None,
                 value=parsed.get(key+"_mib_per_sec")
                 if not isinstance(value,(int,float)) or not 0<value<10**7:
                     raise BenchmarkError("Invalid memory bandwidth: "+key)
-            _save_raw(raw_dir,"memory-"+mode+"-"+str(i+1)+".json",json.dumps(parsed,indent=2)+"\\n")
+            _save_raw(raw_dir,"memory-"+mode+"-"+str(i+1)+".json",json.dumps(parsed,indent=2)+"\n")
             samples.append(parsed)
         results[mode]={"threads":count,"samples":len(samples),
                        **{key+"_mib_per_sec":_mean([v[key+"_mib_per_sec"] for v in samples])

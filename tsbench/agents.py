@@ -336,7 +336,7 @@ def parallel(config: dict, deadline: float, base: Path, scratch: Path,
             metrics = telemetry.stop()
             if raw_dir is not None:
                 atomic_json(raw_dir/("agents-"+str(count)+"-resources.json"),
-                            {"samples":telemetry.samples,"summary":metrics,
+                            {"samples":getattr(telemetry,"samples",[]),"summary":metrics,
                              "rss_basis":"worktree-cwd matched processes; shared pages included"})
             minimum=config["parallel"].get("minimum_observed_seconds",0) if real_mode else 0
             sustained_seconds=elapsed

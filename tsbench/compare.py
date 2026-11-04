@@ -84,9 +84,14 @@ def compare(paths: list[Path]) -> dict:
         for count in (4,8,16):
             values = [stage["throughput_per_minute"]
                       for run in group for stage in run.get("agents",{}).get("parallel",[])
-                      if stage.get("concurrency")==count and stage.get("status")=="validated"
+                      if stage.get("concurrency")==count
+                      and stage.get("measurement_valid") is True
+                      and stage.get("status") in ("measured","failed_host")
                       and isinstance(stage.get("throughput_per_minute"),(float,int))]
-            entry["parallel"][str(count)] = round(median(values),4) if values else None
+            # Publish stage-specific medians only with three eligible observations,
+            # not merely a complete campaign with one observed stage.
+            entry.setdefault("parallel_measured_runs",{})[str(count)]=len(values)
+            entry["parallel"][str(count)] = round(median(values),4) if len(values)>=3 else None
         prices = [(r.get("price",{}) or {}) for r in group]
         known = [p for p in prices if isinstance(p.get("monthly_amount"),(int,float))
                  and p["monthly_amount"]>0 and p.get("currency") and p.get("source_url")

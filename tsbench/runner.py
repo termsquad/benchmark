@@ -116,9 +116,15 @@ def run(config_file: Path, root: Path, *, provider: str | None = None,
                         result["agents"][section]=value
                     else:
                         result[section]=value
+                    # A complete measurement is not the same as a fast/successful host.
+                    # Keep negative observed capacity results eligible for comparison.
                     phase_ok = (value.get("status")=="validated" if section=="memory" else
-                                value.get("status")=="passed" if section=="single" else
-                                any(x.get("status")=="validated" for x in value) if section=="parallel" else True)
+                                value.get("status") in ("passed","failed_tests","scope_violation")
+                                if section=="single" else
+                                bool(value) and all(s.get("status") in ("measured","failed_host") or
+                                    (s.get("status")=="not_tested" and
+                                     s.get("reason")=="resource_admission") for s in value)
+                                if section=="parallel" else True)
                     if not phase_ok:
                         all_ok=False
                     result["phases"][section]={"status":"complete" if phase_ok else "inconclusive",
@@ -129,12 +135,13 @@ def run(config_file: Path, root: Path, *, provider: str | None = None,
                                                 "elapsed_seconds":round(time.monotonic()-phase_start,2)}
                     result["errors"].append(section+": "+type(exc).__name__)
                 if remaining(total_deadline,1)==0: break
-            single_ok=result["agents"].get("single",{}).get("status")=="passed"
+            single_ok=result["agents"].get("single",{}).get("status") in (
+                "passed","failed_tests","scope_violation")
             stages=result["agents"].get("parallel",[])
-            valid_stage=any(s.get("status")=="validated" for s in stages)
+            valid_stage=any(s.get("status") in ("measured","failed_host") for s in stages)
             expected=[int(s["count"]) for s in config["parallel"]["stages"]]
             stages_complete=([s.get("concurrency") for s in stages]==expected and
-                             all(s.get("status")=="validated" or
+                             all(s.get("status") in ("measured","failed_host") or
                                  (s.get("status")=="not_tested" and s.get("reason")=="resource_admission")
                                  for s in stages))
             result["status"]="complete" if all_ok and single_ok and valid_stage and stages_complete else "partial"

@@ -46,12 +46,16 @@ def render(result: dict) -> str:
              "Model: "+result["provenance"]["model"]+" / "+result["provenance"]["reasoning_effort"],
              "Single task: "+str(agents.get("single",{}).get("status","not_tested"))]
     for stage in agents.get("parallel",[]):
-        rows.append(str(stage["concurrency"])+" agents: "+stage["status"]+
-                    ", passed "+str(stage.get("passed","n/a"))+
-                    ", completed/min "+str(stage.get("throughput_per_minute","n/a")))
+        rows.append(str(stage["concurrency"])+" agents: measurement="+stage["status"]+
+                    ", capacity="+str(stage.get("capacity_status","not_evaluated"))+
+                    ", passed "+str(stage.get("passed","n/a"))+"/"+str(stage.get("attempted","n/a"))+
+                    ", correct tasks/min "+str(stage.get("throughput_per_minute","n/a"))+
+                    ", qualifying busy seconds "+str(stage.get("observed_sustained_seconds","n/a"))+
+                    ", longest continuous "+str((stage.get("activity_statistics") or {}).get(
+                        "longest_continuous_seconds","n/a"))))
     rows += ["","## Validity and limitations","",
              "Agent wall times include remote model latency. A rate-limited result is not evidence of poor VM performance.",
-             "A validated concurrency stage is not a theoretical maximum supported by the VM."]
+             "Execution validity and achieved capacity are distinct. Below-target capacity is a measured outcome, not a failed benchmark."]
     if memory.get("status")=="limited":
         rows.append("Memory results are **not eligible for RAM rankings**: "+str(memory.get("reason")))
     elif memory.get("status")=="validated":

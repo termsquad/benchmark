@@ -1,13 +1,14 @@
 """Reproducible, independent, multi-file coding work, never scored by an LLM.
 
-Eight scenario types replicated into 16 isolated projects to balance the 16-agent
+Nine scenario types replicated into 16 isolated projects to balance the 16-agent
 stage. Tests are assembled from this installed runner, not copied to worktrees.
 """
 from __future__ import annotations
 import hashlib
 import json
+import time
 from pathlib import Path
-from .common import BenchmarkError, require_success, run_command
+from .common import BenchmarkError, require_success, run_command, remaining
 from .fixtures import create_worktree
 
 SCENARIOS = [
@@ -121,6 +122,28 @@ const load=async()=>{count++;await Promise.resolve();return 'ok';};
 const values=await Promise.all([loadCached(c,'y',50,load),loadCached(c,'y',50,load)]);
 assert.deepEqual(values,['ok','ok']);assert.equal(count,1);
 assert.equal(await loadCached(c,'y',50,load),'ok');assert.equal(count,1);"""
+    },
+    {
+        "title": "File-backed event journal and API handler",
+        "instructions": "Implement async readEvents(file) and appendEvent(file,event) for a UTF-8 JSON-lines journal. A missing file reads as an empty list, blank lines are ignored, malformed JSON is rejected, and events without a nonempty string id are rejected. Implement createHandler(file), returning an async handler for {method,path,body}: GET /events returns {status:200,body:events}; valid POST /events appends and returns {status:201,body:{id}}; invalid events return {status:400,body:{error:'invalid event'}}; other routes return {status:404,body:{error:'not found'}}.",
+        "files": {"journal.js": "exports.readEvents=async(file)=>{throw Error('TODO')};exports.appendEvent=async(file,event)=>{throw Error('TODO')};",
+                  "handler.js": "exports.createHandler=(file)=>{throw Error('TODO')};"},
+        "tests": """const fs=require('node:fs'),path=require('node:path');
+const {readEvents,appendEvent}=require('./src/journal');
+const {createHandler}=require('./src/handler');
+const dir=fs.mkdtempSync(path.join(process.cwd(),'.tsbench-validator-')),file=path.join(dir,'events.jsonl');
+try {
+  assert.deepEqual(await readEvents(file),[]);
+  await appendEvent(file,{id:'a',value:1});await appendEvent(file,{id:'b',value:2});
+  assert.deepEqual(await readEvents(file),[{id:'a',value:1},{id:'b',value:2}]);
+  await assert.rejects(async()=>appendEvent(file,{id:''}));
+  const handler=createHandler(file);
+  assert.deepEqual(await handler({method:'POST',path:'/events',body:{id:'c'}}),{status:201,body:{id:'c'}});
+  assert.deepEqual(await handler({method:'POST',path:'/events',body:{}}),{status:400,body:{error:'invalid event'}});
+  assert.deepEqual(await handler({method:'GET',path:'/events'}),{status:200,body:[{id:'a',value:1},{id:'b',value:2},{id:'c'}]});
+  assert.deepEqual(await handler({method:'GET',path:'/unknown'}),{status:404,body:{error:'not found'}});
+  fs.appendFileSync(file,'not-json\\n');await assert.rejects(async()=>readEvents(file));
+} finally {fs.rmSync(dir,{recursive:true,force:true});}"""
     }
 ]
 
@@ -158,6 +181,21 @@ def create_real_base(root: Path) -> Path:
                                  "-c","user.email=benchmark@localhost","commit","-qm","freeze real fixtures"],10),
                     "real fixture git commit")
     return base
+
+
+def changes_within_scope(worktree: Path, task_ids: set[int], timeout: float) -> bool:
+    deadline=time.monotonic()+timeout
+    commands=(["git","-C",str(worktree),"diff","--name-only","--no-renames","-z","HEAD","--"],
+              ["git","-C",str(worktree),"ls-files","--others","-z"])
+    allowed=tuple("tasks/"+str(i).zfill(2)+"/src/" for i in sorted(task_ids))
+    for command in commands:
+        response=run_command(command,remaining(deadline,timeout),max_output=200000)
+        output=require_success(response,"git scope check")
+        if len(output)>=200000:
+            raise BenchmarkError("Scope listing exceeds safe limit")
+        if any(not name.startswith(allowed) for name in output.split("\0") if name):
+            return False
+    return True
 
 
 def validate_task(index: int, worktree: Path, timeout: float = 12.0) -> dict:

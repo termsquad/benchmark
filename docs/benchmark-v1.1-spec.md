@@ -16,7 +16,7 @@ Observed v1 limitations:
 
 ## Version and reproducibility
 
-- New suite version: **1.1.0**; new benchmark commit/config/fixture digests; distinct campaign IDs.
+- New suite version: **1.1.1**, a distinct cohort from the unvalidated 1.1.0 implementation and v1; new benchmark commit/config/fixture digests and campaign IDs.
 - Keep model `gpt-6.1-terra`, effort `xhigh`, and Ubuntu 24.04/26.04 x86_64.
 - Maintain 2,700 s maximum full-run budget including cleanup and evidence.
 - Do not modify any v1 run JSON, archived manifests or v1 branch to force comparability.
@@ -38,6 +38,8 @@ Keep v1 micro-tasks exclusively as an orchestration smoke test, **not** a produc
 ## Sustained concurrency
 
 Maintain fixed concurrency levels 4, 8 and 16, but run each stage for a reproducible time window using a task queue, not exactly one tiny task per agent. Record completed, attempted, correct, failed, skipped, timed-out, rate-limited and infrastructure-constrained tasks; sample resource pressure and OOM throughout. Report correct tasks/min, median/p95 end-to-end task duration, and local/remote observability where available. Do not equate a 16-agent pass with indefinitely sustainable 16-agent capacity. Never allow a worker to spill beyond the phase deadline or leave owned Herdr sessions behind.
+
+The 1.1.1 cohort permits up to five distinct tasks per agent at each stage, within the unchanged phase deadlines. This corrects repeated task IDs and provides enough queued work to attempt the required sustained window; it does not lower the validation threshold. Sustained duration is the longest continuous interval with at least 75% of workers observed in Herdr's `working` state while their assigned tasks are in flight. Missing or interrupted observations cannot establish sustained load.
 
 ## Cancellation and uninstall
 

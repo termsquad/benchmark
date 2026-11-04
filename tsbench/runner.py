@@ -12,7 +12,7 @@ from .common import BenchmarkError, CommandTimeout, load_json, remaining, sha256
 from .inventory import inventory, verify_host, herdr_server_ready
 from .fixtures import fixture_digest, create_base
 from .real_tasks import digest as real_fixture_digest, create_real_base
-from .hardware import cpu, memory, disk
+from .hardware import cpu, memory, disk, verify_memory_build
 from .agents import single, parallel
 from .campaign import initialize, record
 from .report import write_artifacts
@@ -76,20 +76,9 @@ def run(config_file: Path, root: Path, *, provider: str | None = None,
             result["provenance"]["codex_version"]=tools.get("codex")
             result["provenance"]["herdr_version"]=tools.get("herdr")
             errors=verify_host(machine,require_agents=True)
-            binary=root/"bin"/"tsbench-stream"
-            built=root/"memory-build.json"
-            if not binary.is_file() or not built.is_file():
-                errors.append("STREAM-style memory workload was not built; run tsbench setup")
-            else:
-                from .hardware import MEMORY_BUILD_FLAGS
-                from .common import sha256_file as _digest
-                memory_build=load_json(built)
-                if memory_build.get("binary_sha256")!=_digest(binary):
-                    errors.append("Compiled memory workload hash differs from build manifest")
-                if memory_build.get("source_sha256")!=_digest(Path(__file__).with_name("stream.c")):
-                    errors.append("Compiled workload source does not match installed package")
-                if memory_build.get("flags")!=list(MEMORY_BUILD_FLAGS):
-                    errors.append("Memory compiler flags do not match suite")
+            memory_build,memory_errors=verify_memory_build(root)
+            errors.extend(memory_errors)
+            if memory_build is not None:
                 result["provenance"]["memory_build"]=memory_build
             if not errors:
                 for label,argv in (("Codex auth",["codex","login","status"]),
@@ -117,7 +106,9 @@ def run(config_file: Path, root: Path, *, provider: str | None = None,
                         value=fn(config,phase_deadline,scratch/"disk",out/"raw")
                     elif section=="memory":
                         value=fn(config,phase_deadline,out/"raw",root/"bin"/"tsbench-stream")
-                    elif section=="single" or section=="parallel":
+                    elif section=="parallel":
+                        value=fn(config,phase_deadline,base,scratch,out/"raw")
+                    elif section=="single":
                         value=fn(config,phase_deadline,base,scratch)
                     else:
                         value=fn(config,phase_deadline,out/"raw")

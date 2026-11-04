@@ -6,11 +6,12 @@ import json
 import re
 import time
 import uuid
-from .common import BenchmarkError, CommandTimeout, require_success, run_command, remaining
+from .common import BenchmarkError, CommandTimeout, require_success, run_command, remaining, atomic_json
 from .fixtures import task_prompt, create_worktree, validate_task
 from .telemetry import Telemetry
 from .inventory import meminfo, psi
 from . import real_tasks
+from .activity import HerdrActivityMonitor, sustained_working_seconds
 
 
 def classify(output: str) -> str:
@@ -59,7 +60,10 @@ def single(config: dict, deadline: float, base: Path, scratch: Path) -> dict:
     try:
         response = run_command(cmd,remaining(deadline,450),cwd=worktree,max_output=180000)
         verdict = real_tasks.validate_task(task_id,worktree) if real_mode else validate_task(task_id,worktree)
+        if real_mode and verdict["passed"] and not real_tasks.changes_within_scope(worktree,{task_id},remaining(deadline,10)):
+            verdict={**verdict,"passed":False,"reason":"scope_violation"}
         outcome = ("passed" if verdict["passed"] and response["returncode"]==0 else
+                   "scope_violation" if verdict.get("reason")=="scope_violation" else
                    "failed_tests" if response["returncode"]==0 else
                    classify(response["stderr"]+"\n"+response["stdout"]))
         return {"status":outcome,"elapsed_seconds":round(time.monotonic()-start,3),
@@ -188,6 +192,7 @@ def _worker_real(index: int, config: dict, deadline: float, base: Path,
     name=(prefix+str(index).zfill(2))[:31]
     started=time.monotonic()
     outcomes=[]
+    assigned=set()
     try:
         worktree=create_worktree(base,scratch,name)
         response=_herdr(["workspace","create","--cwd",str(worktree),
@@ -207,7 +212,9 @@ def _worker_real(index: int, config: dict, deadline: float, base: Path,
         for round_index in range(max_tasks):
             if remaining(deadline,30)<30:
                 break
-            task_id=(index+count*round_index)%real_tasks.TASK_COUNT
+            # A coprime stride keeps tasks distinct per worker, including at 16.
+            task_id=(index+5*round_index)%real_tasks.TASK_COUNT
+            assigned.add(task_id)
             task_started=time.monotonic()
             task_started_offset=task_started-stage_start
             try:
@@ -229,12 +236,14 @@ def _worker_real(index: int, config: dict, deadline: float, base: Path,
                     status=exc.category
             except CommandTimeout:
                 status=_classify_timeout(name,deadline)
+            if status=="passed" and not real_tasks.changes_within_scope(worktree,assigned,remaining(deadline,10)):
+                status="scope_violation"
             task_finished=time.monotonic()
             outcomes.append({"task_id":task_id,"status":status,
                              "started_offset_seconds":round(task_started_offset,3),
                              "finished_offset_seconds":round(task_finished-stage_start,3),
                              "elapsed_seconds":round(task_finished-task_started,3)})
-            if status in ("rate_limited","authentication_error","timed_out","agent_error"):
+            if status in ("rate_limited","authentication_error","timed_out","agent_error","scope_violation"):
                 break
         passed=sum(task["status"]=="passed" for task in outcomes)
         failure=next((task["status"] for task in outcomes if task["status"]!="passed"),None)
@@ -242,7 +251,8 @@ def _worker_real(index: int, config: dict, deadline: float, base: Path,
                 "passed":passed,"status":failure or ("passed" if outcomes else "not_tested"),
                 "task_results":outcomes,"elapsed_seconds":round(time.monotonic()-started,3)}
     except (CommandTimeout,HerdrCommandError) as exc:
-        status=_classify_timeout(name,deadline) if isinstance(exc,CommandTimeout) else exc.category
+        status=(_classify_timeout(name,deadline) if isinstance(exc,CommandTimeout) or exc.code=="timeout"
+                else exc.category)
         return {"worker":index,"task_id":index,"status":status,"attempted":len(outcomes),
                 "passed":sum(t["status"]=="passed" for t in outcomes),"task_results":outcomes,
                 "elapsed_seconds":round(time.monotonic()-started,3)}
@@ -252,7 +262,8 @@ def _worker_real(index: int, config: dict, deadline: float, base: Path,
                 "task_results":outcomes,"elapsed_seconds":round(time.monotonic()-started,3)}
 
 
-def parallel(config: dict, deadline: float, base: Path, scratch: Path) -> list[dict]:
+def parallel(config: dict, deadline: float, base: Path, scratch: Path,
+             raw_dir: Path | None = None) -> list[dict]:
     results = []
     prefix = "tsb"+uuid.uuid4().hex[:7]
     for stage in config["parallel"]["stages"]:
@@ -269,9 +280,11 @@ def parallel(config: dict, deadline: float, base: Path, scratch: Path) -> list[d
         created = []
         telemetry = Telemetry().start()
         tasks = []
+        real_mode=config.get("agent_workload")=="real"
+        names=[(prefix+str(count)+str(i).zfill(2))[:31] for i in range(count)]
+        activity=HerdrActivityMonitor(set(names)).start() if real_mode else None
         try:
             with ThreadPoolExecutor(max_workers=count) as executor:
-                real_mode=config.get("agent_workload")=="real"
                 futures = [executor.submit(_worker_real,index,config,worker_deadline,base,scratch,
                                            created,prefix+str(count),count,stage_start) if real_mode else
                            executor.submit(_worker,index,config,worker_deadline,base,scratch,
@@ -284,42 +297,54 @@ def parallel(config: dict, deadline: float, base: Path, scratch: Path) -> list[d
             passed = sum(x.get("passed",1 if x["status"]=="passed" else 0) for x in tasks)
             constrained = any(x["status"] in ("rate_limited","authentication_error") for x in tasks)
             metrics = telemetry.stop()
-            real_mode=config.get("agent_workload")=="real"
             minimum=config["parallel"].get("minimum_observed_seconds",0) if real_mode else 0
             sustained_seconds=elapsed
+            activity_data=None
             if real_mode:
-                # Only time with >=75% of target agents actually processing tasks
-                # counts as sustained concurrency. Setup and idle time do not count.
                 import math
-                events=[]
-                for worker in tasks:
-                    for task in worker.get("task_results",[]):
-                        if "started_offset_seconds" in task and "finished_offset_seconds" in task:
-                            events.append((task["started_offset_seconds"],1))
-                            events.append((task["finished_offset_seconds"],-1))
-                events.sort()
-                active=0
-                previous=0.0
-                sustained_seconds=0.0
+                from collections import Counter
+                from statistics import median
+                activity_data=activity.stop()
                 needed=max(1,math.ceil(count*0.75))
-                for at,change in events:
-                    if active>=needed:
-                        sustained_seconds+=max(0.0,at-previous)
-                    active+=change
-                    previous=at
+                if raw_dir is not None:
+                    atomic_json(raw_dir/("agents-"+str(count)+"-activity.json"),
+                                {"stage_start_monotonic":stage_start,"worker_names":names,
+                                 "minimum_active":needed,**activity_data})
+                sustained_seconds=sustained_working_seconds(activity_data.get("samples",[]),tasks,
+                                                             names,stage_start,needed)
+                outcomes=[task for worker in tasks for task in worker.get("task_results",[])]
+                task_counts=dict(Counter(t.get("status","unknown") for t in outcomes))
+                worker_counts=dict(Counter(w.get("status","unknown") for w in tasks))
+                latencies=sorted(t["elapsed_seconds"] for t in outcomes if t.get("status")=="passed"
+                                 and isinstance(t.get("elapsed_seconds"),(int,float)))
+                latency_median=round(median(latencies),3) if latencies else None
+                latency_p95=round(latencies[math.ceil(.95*len(latencies))-1],3) if latencies else None
+                planned=count*int(config["parallel"]["max_tasks_per_agent"].get(str(count),2))
             status = ("externally_constrained" if constrained else
                       "failed_host" if (metrics["oom_kills"] or 0)>0 else
                       "inconclusive" if metrics["oom_kills"] is None else
+                      "inconclusive_telemetry" if real_mode and not (activity_data.get("available") and activity_data.get("complete")) else
                       "insufficient_sustained_load" if real_mode and sustained_seconds<minimum else
                       "validated" if attempted>=count and passed/max(attempted,1)>=.75 else "inconclusive")
             results.append({"concurrency":count,"status":status,"passed":passed,
                             "attempted":attempted,"workload":"multi_file" if real_mode else "micro_smoke",
                             "minimum_sustained_seconds":minimum,
                             "observed_sustained_seconds":round(sustained_seconds,3),
+                            "activity_monitor_available":(activity_data.get("available",False) and
+                                                          activity_data.get("complete",False)) if real_mode else None,
+                            "activity_sample_count":len(activity_data.get("samples",[])) if real_mode else None,
+                            "task_status_counts":task_counts if real_mode else None,
+                            "worker_status_counts":worker_counts if real_mode else None,
+                            "skipped_tasks":max(0,planned-attempted) if real_mode else None,
+                            "task_latency_median_seconds":latency_median if real_mode else None,
+                            "task_latency_p95_seconds":latency_p95 if real_mode else None,
+                            "task_latency_basis":"passed_tasks" if real_mode else None,
                             "throughput_per_minute":round(passed/max(elapsed,1)*60,4),
                             "elapsed_seconds":round(elapsed,3),"tasks":sorted(tasks,key=lambda x:x["task_id"]),
                             "telemetry":metrics})
         finally:
+            if activity:
+                activity.stop()
             telemetry.stop()
             failed_cleanup=False
             for workspace in created:

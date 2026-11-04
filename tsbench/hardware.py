@@ -3,9 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 import re
 import json
+import math
+import os
 import shutil
 import time
-from .common import BenchmarkError, run_command, require_success, remaining
+from .common import BenchmarkError, run_command, require_success, remaining, load_json, sha256_file
 from .inventory import meminfo
 
 
@@ -67,21 +69,69 @@ def build_memory_binary(destination: Path) -> dict:
             "flags":list(MEMORY_BUILD_FLAGS)}
 
 
-def _last_level_cache_bytes() -> int | None:
-    root = Path("/sys/devices/system/cpu/cpu0/cache")
-    sizes = []
-    for index in root.glob("index*"):
-        try:
-            level = int((index/"level").read_text().strip())
-            label = (index/"size").read_text().strip().upper()
-            multiplier = 1024**{"K":1,"M":2,"G":3}[label[-1]]
-            sizes.append((level,int(label[:-1])*multiplier))
-        except (OSError,ValueError,IndexError,KeyError):
-            continue
-    if not sizes:
+def verify_memory_build(root: Path) -> tuple[dict | None,list[str]]:
+    binary=root/"bin"/"tsbench-stream"
+    manifest=root/"memory-build.json"
+    if not binary.is_file() or not manifest.is_file():
+        return None,["STREAM-style memory workload was not built; run tsbench setup"]
+    try:
+        build=load_json(manifest)
+        errors=[]
+        if build.get("binary_sha256")!=sha256_file(binary):
+            errors.append("Compiled memory workload hash differs from build manifest")
+        if build.get("source_sha256")!=sha256_file(Path(__file__).with_name("stream.c")):
+            errors.append("Compiled workload source does not match installed package")
+        if build.get("flags")!=list(MEMORY_BUILD_FLAGS):
+            errors.append("Memory compiler flags do not match suite")
+        return build,errors
+    except (OSError,ValueError,BenchmarkError):
+        return None,["Memory build manifest or workload cannot be verified"]
+
+
+def _last_level_cache_bytes(root: Path = Path("/sys/devices/system/cpu")) -> int | None:
+    try:
+        cpus=sorted(os.sched_getaffinity(0))
+    except (AttributeError,OSError):
         return None
-    highest=max(level for level,_ in sizes)
-    return max(size for level,size in sizes if level==highest)
+    if not cpus:
+        return None
+    per_cpu=[]
+    for cpu_id in cpus:
+        entries=[]
+        for index in (root/("cpu"+str(cpu_id))/"cache").glob("index*"):
+            try:
+                if (index/"type").read_text().strip() not in ("Data","Unified"):
+                    continue
+                level=int((index/"level").read_text().strip())
+                label=(index/"size").read_text().strip().upper()
+                size=int(label[:-1])*1024**{"K":1,"M":2,"G":3}[label[-1]]
+                shared=(index/"shared_cpu_list").read_text().strip()
+                if not shared or size<=0:
+                    return None
+                entries.append((level,shared,size))
+            except (OSError,ValueError,IndexError,KeyError):
+                return None
+        if not entries:
+            return None
+        highest=max(entry[0] for entry in entries)
+        per_cpu.append([entry for entry in entries if entry[0]==highest])
+    if len({entries[0][0] for entries in per_cpu})!=1:
+        return None
+    domains={}
+    for entries in per_cpu:
+        for level,shared,size in entries:
+            if shared in domains and domains[shared]!=size:
+                return None
+            domains[shared]=size
+    return sum(domains.values())
+
+
+def _expected_memory_checksum(working_mib: int, passes: int) -> float:
+    # Recompute the sampled initial values and recurrence independently of C.
+    n = working_mib * 1024 * 1024 // 24
+    step = n // 1024 + 1
+    initial = sum(1.0 + (i % 19) / 19.0 for i in range(0,n,step))
+    return initial * 2.875 * (0.875 ** (passes-1))
 
 
 def memory(config: dict, deadline: float, raw_dir: Path | None = None,
@@ -95,7 +145,8 @@ def memory(config: dict, deadline: float, raw_dir: Path | None = None,
     available = meminfo().get("MemAvailable",0)
     llc = _last_level_cache_bytes()
     results = {"backend":"stream_style_v1","working_set_mib":working_mib,
-               "last_level_cache_bytes":llc,"status":"validated"}
+               "last_level_cache_bytes":llc,"cache_scope":"distinct_affinity_domains",
+               "status":"validated"}
     if available < (working_mib+512)*1048576:
         return {**results,"status":"limited","reason":"insufficient_available_ram"}
     if llc is None or working_mib*1048576 < llc*int(p["minimum_cache_multiple"]):
@@ -112,6 +163,10 @@ def memory(config: dict, deadline: float, raw_dir: Path | None = None,
                 parsed.get("threads")!=count or parsed.get("working_set_mib")!=working_mib or
                 parsed.get("passes",0)<5 or not parsed.get("checksum",0)>0):
                 raise BenchmarkError("Invalid memory backend provenance or checksum")
+            expected = _expected_memory_checksum(working_mib,parsed["passes"])
+            if expected<=0 or not math.isclose(parsed["checksum"],expected,rel_tol=1e-6,abs_tol=0.0):
+                raise BenchmarkError("Memory checksum differs from independent reference")
+            parsed["expected_checksum"]=expected
             for key in ("copy","scale","add","triad"):
                 value=parsed.get(key+"_mib_per_sec")
                 if not isinstance(value,(int,float)) or not 0<value<10**7:

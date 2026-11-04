@@ -72,6 +72,9 @@ def main(argv=None):
         elif args.command=="doctor":
             machine=inventory(Path.cwd())
             errors=verify_host(machine,not args.hardware_only)
+            from .hardware import verify_memory_build
+            _,memory_errors=verify_memory_build(root)
+            errors.extend(memory_errors)
             if not args.hardware_only and shutil.which("codex"):
                 from .common import run_command
                 auth=run_command(["codex","login","status"],10)

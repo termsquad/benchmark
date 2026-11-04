@@ -1,6 +1,6 @@
 # TermSquad Benchmark
 
-Reproducible VM benchmarking for real AI coding agents. **v1.1** measures CPU, cache-exceeding STREAM-style RAM throughput, fio disk sequential/random/mixed I/O and Codex/Herdr multi-file coding workloads on Ubuntu 24.04 or 26.04 LTS.
+Reproducible VM benchmarking for real AI coding agents. **v1.1.1** measures CPU, cache-exceeding STREAM-style RAM throughput, fio disk sequential/random/mixed I/O and Codex/Herdr multi-file coding workloads on Ubuntu 24.04 or 26.04 LTS. This revised workload and its observed-activity gate form a distinct cohort from the unvalidated v1.1.0 implementation.
 
 **Important:** The v1 campaign was stopped after one eligible run on each of Netcup and Contabo. Those runs are preliminary historical evidence, **not** publication-ready rankings. v1.1 is a separate statistical cohort and must not overwrite the v1 evidence.
 
@@ -70,7 +70,7 @@ Without --purge, uninstall removes benchmark-owned installation assets conservat
 - RAM: fixed-source STREAM-style copy/scale/add/triad MiB/s, single and effective multi-vCPU, with a dataset larger than last-level cache. Not the official STREAM binary.
 - Disk: fio sequential MiB/s, random 4K IOPS, p50/p95/p99 latency, queue depth 1 and 16, and 70/30 random read/write mixed IOPS.
 - Coding: real multi-file Node.js API and application scenarios with immutable runner-owned validators. Legacy micro-tasks are retained only as smoke checks.
-- Concurrency: 4, 8 and up to 16 Herdr-managed interactive Codex agents, bounded successive task queues, task pass fraction, completed tasks/min and an explicit insufficient-duration status.
+- Concurrency: 4, 8 and up to 16 Herdr-managed interactive Codex agents, bounded successive task queues, task pass fraction, completed tasks/min and an explicit insufficient-duration status. Sustained duration requires continuous observed `working` states for at least 75% of the target agents with tasks in flight; missing observations cannot validate it.
 - Telemetry: CPU load, memory/swap use, Linux pressure stall counters and OOM events.
 
 No arbitrary combined score. The LLM may interpret measurements but may not modify them. Pricing is optional operator-supplied metadata, never derived from IP address or provider naming.

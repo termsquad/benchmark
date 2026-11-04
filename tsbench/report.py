@@ -29,14 +29,19 @@ def render(result: dict) -> str:
         "| RAM STREAM-style triad, multi-thread | "+_metric(memory.get("multi"),"triad_mib_per_sec","MiB/s")+" |",
         "| RAM measurement validity | "+str(memory.get("status","not_tested"))+" |"]
     for key,value in disk.items():
-        if isinstance(value,dict):
+        if isinstance(value,dict) and key!="mixed_random_70r30w_qd16":
             rows.append("| Disk "+key+" | "+_metric(value,"mib_per_sec","MiB/s")+"; "+
                         _metric(value,"iops","IOPS")+"; p95 "+_metric(value,"latency_p95_ms","ms")+" |")
     mixed=disk.get("mixed_random_70r30w_qd16",{})
     if mixed:
         rows.append("| Disk mixed 70% read / 30% write QD16 | "+
                     _metric(mixed.get("read"),"iops","read IOPS")+"; "+
-                    _metric(mixed.get("write"),"iops","write IOPS")+" |")
+                    _metric(mixed.get("write"),"iops","write IOPS")+"; "+
+                    _metric(mixed,"total_iops","total IOPS")+" |")
+        for mode in ("read","write"):
+            rows.append("| Disk mixed "+mode+" latency | p95 "+
+                        _metric(mixed.get(mode),"latency_p95_ms","ms")+"; p99 "+
+                        _metric(mixed.get(mode),"latency_p99_ms","ms")+" |")
     rows += ["","## Agent workloads","",
              "Model: "+result["provenance"]["model"]+" / "+result["provenance"]["reasoning_effort"],
              "Single task: "+str(agents.get("single",{}).get("status","not_tested"))]
@@ -49,8 +54,10 @@ def render(result: dict) -> str:
              "A validated concurrency stage is not a theoretical maximum supported by the VM."]
     if memory.get("status")=="limited":
         rows.append("Memory results are **not eligible for RAM rankings**: "+str(memory.get("reason")))
-    else:
+    elif memory.get("status")=="validated":
         rows.append("STREAM-style memory bandwidth uses a cache-exceeding working set, not the official STREAM implementation.")
+    else:
+        rows.append("Memory bandwidth has not been validated.")
     for warning in result.get("warnings",[]):
         rows.append("- Warning: "+str(warning))
     for error in result.get("errors",[]):

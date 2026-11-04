@@ -108,7 +108,7 @@ def verify_host(machine: dict, require_agents: bool) -> list[str]:
         errors.append("Only Ubuntu 24.04 and 26.04 are supported")
     if machine["architecture"] not in ("x86_64","amd64"):
         errors.append("Only x86_64 is supported")
-    required = ("sysbench","fio","git","node") + (("codex","herdr") if require_agents else ())
+    required = ("sysbench","fio","git","node","gcc") + (("codex","herdr") if require_agents else ())
     for name in required:
         if not machine["tools"].get(name):
             errors.append("Missing or unavailable: " + name)

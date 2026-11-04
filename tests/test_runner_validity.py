@@ -186,11 +186,20 @@ class RunValidityTests(unittest.TestCase):
              patch("tsbench.runner.run_command", return_value={"returncode": 0, "stdout": '{"running": true}'}), \
              patch("tsbench.runner.create_base", return_value=Path(tmp)), \
              patch("tsbench.runner.cpu", return_value={}), \
-             patch("tsbench.runner.memory", return_value={}), \
+             patch("tsbench.runner.memory", return_value={"status":"validated"}), \
              patch("tsbench.runner.disk", return_value={}), \
              patch("tsbench.runner.single", return_value={"status": "passed"}), \
              patch("tsbench.runner.parallel", return_value=stages):
             root = Path(tmp) / "state"
+            (root/"bin").mkdir(parents=True)
+            binary=root/"bin"/"tsbench-stream"
+            binary.write_bytes(b"test executable")
+            from tsbench.common import sha256_file
+            from tsbench.hardware import MEMORY_BUILD_FLAGS
+            src=Path(__file__).resolve().parents[1]/"tsbench"/"stream.c"
+            (root/"memory-build.json").write_text(json.dumps({
+                "source_sha256":sha256_file(src),"binary_sha256":sha256_file(binary),
+                "flags":list(MEMORY_BUILD_FLAGS)}))
             result = run(config, root)
             self.assertEqual(result["status"], "partial")
             self.assertEqual(load_json(root / "campaign.json")["eligible_runs"], [])

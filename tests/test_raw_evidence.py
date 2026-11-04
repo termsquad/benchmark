@@ -13,11 +13,14 @@ from tsbench.common import sha256_file
 
 class RawEvidenceTests(unittest.TestCase):
     def test_small_memory_working_set_is_disclosed_as_limited(self):
-        config = {"memory": {"samples": 2, "sample_seconds": 1,
-                             "block_size": "1M", "total_size": "100G"}}
-        response = {"returncode": 0, "stdout": "(123.45 MiB/sec)"}
-        with patch("tsbench.hardware.run_command", return_value=response):
-            result = memory(config, time.monotonic()+60)
+        config = {"memory": {"backend": "stream_style_v1", "working_set_mib": 64,
+                             "minimum_cache_multiple": 4, "samples": 1, "sample_seconds": 1}}
+        with tempfile.TemporaryDirectory() as tmp:
+            executable=Path(tmp)/"stream"
+            executable.touch()
+            with patch("tsbench.hardware.meminfo", return_value={"MemAvailable":2*1024**3}), \
+                 patch("tsbench.hardware._last_level_cache_bytes",return_value=64*1024**2):
+                result=memory(config,time.monotonic()+60,executable=executable)
         self.assertEqual(result["status"], "limited")
         self.assertIn("cache", result["reason"])
 

@@ -81,7 +81,7 @@ All fio tests run against a newly created **regular file** inside a private benc
 
 Current limitations: even multi-file coding fixtures are simplified compared with production repositories; interactive Herdr/Codex behavior and server versions vary and CLI flags must be validated against installed versions. A passing stage is **not** proof of the maximum number of agents a VM can support. Current unit tests do not replace real Linux E2E runs.
 
-See [v1.1 specification](docs/benchmark-v1.1-spec.md) for the updated contract and [v1 specification](docs/benchmark-v1-spec.md) for historical provenance.
+See the [v1.1.3 corrections](docs/benchmark-v1.1.3-fixes.md) for precise stage validity and occupancy definitions. See [v1.1 specification](docs/benchmark-v1.1-spec.md) for the updated contract and [v1 specification](docs/benchmark-v1-spec.md) for historical provenance.
 
 ## Development
 

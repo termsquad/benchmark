@@ -17,3 +17,9 @@ This branch implements the revised contract in `docs/benchmark-v1.1-spec.md`, ba
 - For safe abortion/cleanup of existing v1 installs, follow `docs/v1-to-v1.1-migration.md` rather than bypassing the native CLI.
 - Use the compiled frozen STREAM-style binary, validate its source hash, measure enough memory beyond cache and report `limited` on unsupported hosts.
 - Agent workload must use multi-file fixture tests and guard against premature Herdr idle/done signals, duplicate prompts, and rate-limit misclassification.
+
+- v1.1.2 generated zero eligible runs in both pilot VMs; its raw evidence is immutable and **never** part of a v1.1.3 statistical cohort.
+- v1.1.3 keeps task correctness, sustained capacity, and instrumented measurement validity as distinct signals; **never** force runs to be partial only because verified capacity is below target.
+- Herdr idle/done cannot identify a particular completed turn. Preserve the bounded grace, observe source stability, and never resend failed prompts.
+- Accumulated time with >=75% of agents observed working on in-flight tasks is the primary capacity diagnostic; the longest continuous span remains available separately. Do not count unsampled gaps as active.
+- The CPU PSI and per-worktree RSS series contain no command lines, environment values, or raw agent messages; treat RSS as approximate due to shared pages and subprocess CWD differences.

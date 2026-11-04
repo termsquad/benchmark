@@ -22,7 +22,8 @@ def signature(item: dict) -> tuple:
     return (item["suite_version"],p.get("benchmark_commit"),p["suite_config_sha256"],p["fixture_sha256"],
             m["architecture"],m["os_version"],p["codex_version"],p["herdr_version"],
             p["model"],p["reasoning_effort"],m.get("tools",{}).get("node"),
-            m.get("tools",{}).get("fio"),m.get("tools",{}).get("sysbench"))
+            m.get("tools",{}).get("fio"),m.get("tools",{}).get("sysbench"),
+            m.get("tools",{}).get("gcc"),p.get("memory_build",{}).get("binary_sha256"))
 
 
 def time_separated(group: list[dict]) -> bool:
@@ -64,15 +65,21 @@ def compare(paths: list[Path]) -> dict:
                  "run_count":len(group),"publication_eligible":len(group)>=3 and time_separated(group),
                  "cpu_single_events_per_sec_median":med("cpu","single_events_per_sec"),
                  "cpu_multi_events_per_sec_median":med("cpu","multi_events_per_sec"),
-                 "memory_read_mib_per_sec_median":med("memory","read_mib_per_sec"),
-                 "memory_write_mib_per_sec_median":med("memory","write_mib_per_sec"),
+                 "memory_single_triad_mib_per_sec_median":None,
+                 "memory_multi_triad_mib_per_sec_median":None,
                  "single_agent_elapsed_seconds_median":None}
         success = [r["agents"]["single"]["elapsed_seconds"] for r in group
                    if r.get("agents",{}).get("single",{}).get("status")=="passed"]
         entry["single_agent_elapsed_seconds_median"] = round(median(success),3) if success else None
+        validated_memory=[r for r in group if r.get("memory",{}).get("status")=="validated"]
+        if len(validated_memory)==len(group):
+            entry["memory_single_triad_mib_per_sec_median"]=med("memory","single","triad_mib_per_sec")
+            entry["memory_multi_triad_mib_per_sec_median"]=med("memory","multi","triad_mib_per_sec")
         entry["disk"] = {key: med("disk",key,"mib_per_sec") for key in
                          ("sequential_read","sequential_write","random_read_qd1","random_write_qd1",
                           "random_read_qd16","random_write_qd16")}
+        entry["mixed_disk_iops"]={
+            mode: med("disk","mixed_random_70r30w_qd16",mode,"iops") for mode in ("read","write")}
         entry["parallel"]={}
         for count in (4,8,16):
             values = [stage["throughput_per_minute"]

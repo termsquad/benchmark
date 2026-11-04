@@ -61,7 +61,7 @@ def main(argv=None):
             elif sha256_file(pinned)!=sha256_file(config):
                 raise BenchmarkError("Pinned campaign configuration differs")
             atomic_json(root/"ownership.json",{"root":str(root),"benchmark_commit":benchmark_commit,"managed":["benchmark.yaml","campaign.json",
-                "results","scratch","tmp","venv","ownership.json"]})
+                "results","scratch","tmp","venv","bin","memory-build.json","ownership.json"]})
             from .hardware import build_memory_binary
             memory_binary=root/"bin"/"tsbench-stream"
             if not memory_binary.exists():

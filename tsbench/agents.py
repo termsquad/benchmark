@@ -315,6 +315,7 @@ def parallel(config: dict, deadline: float, base: Path, scratch: Path,
             continue
         created = []
         telemetry = Telemetry().start()
+        telemetry.owned_worktree_root=scratch  # only benchmark-owned worktrees
         tasks = []
         real_mode=config.get("agent_workload")=="real"
         names=[(prefix+str(count)+str(i).zfill(2))[:31] for i in range(count)]
@@ -333,6 +334,10 @@ def parallel(config: dict, deadline: float, base: Path, scratch: Path,
             passed = sum(x.get("passed",1 if x["status"]=="passed" else 0) for x in tasks)
             constrained = any(x["status"] in ("rate_limited","authentication_error") for x in tasks)
             metrics = telemetry.stop()
+            if raw_dir is not None:
+                atomic_json(raw_dir/("agents-"+str(count)+"-resources.json"),
+                            {"samples":telemetry.samples,"summary":metrics,
+                             "rss_basis":"worktree-cwd matched processes; shared pages included"})
             minimum=config["parallel"].get("minimum_observed_seconds",0) if real_mode else 0
             sustained_seconds=elapsed
             activity_data=None

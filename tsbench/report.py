@@ -52,7 +52,7 @@ def render(result: dict) -> str:
                     ", correct tasks/min "+str(stage.get("throughput_per_minute","n/a"))+
                     ", qualifying busy seconds "+str(stage.get("observed_sustained_seconds","n/a"))+
                     ", longest continuous "+str((stage.get("activity_statistics") or {}).get(
-                        "longest_continuous_seconds","n/a"))))
+                        "longest_continuous_seconds","n/a")))
     rows += ["","## Validity and limitations","",
              "Agent wall times include remote model latency. A rate-limited result is not evidence of poor VM performance.",
              "Execution validity and achieved capacity are distinct. Below-target capacity is a measured outcome, not a failed benchmark."]

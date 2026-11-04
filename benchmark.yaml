@@ -1,12 +1,62 @@
 {
-  "suite_version": "1.0.0",
+  "suite_version": "1.1.0",
   "model": "gpt-6.1-terra",
   "reasoning_effort": "xhigh",
   "maximum_seconds": 2700,
-  "phase_seconds": {"preflight":180,"cpu":240,"memory":240,"disk":540,"single":480,"parallel":840,"report":180},
-  "cpu": {"threads_single":1,"sample_seconds":35,"samples":2,"max_prime":20000},
-  "memory": {"sample_seconds":30,"samples":2,"block_size":"1M","total_size":"100G"},
-  "disk": {"file_size_mib":2048,"reserve_mib":4096,"runtime_seconds":40,"ramp_seconds":3,"jobs":1,"ioengine":"libaio"},
-  "parallel": {"stages":[{"count":4,"seconds":240},{"count":8,"seconds":300},{"count":16,"seconds":300}],"max_memory_psi_some":25,"minimum_free_mib_per_agent":320},
-  "price": {"monthly_amount":null,"currency":null,"source_url":null,"includes_mandatory_fees":null}
+  "phase_seconds": {
+    "preflight": 180,
+    "cpu": 240,
+    "memory": 240,
+    "disk": 540,
+    "single": 420,
+    "parallel": 900,
+    "report": 180
+  },
+  "cpu": {
+    "threads_single": 1,
+    "sample_seconds": 35,
+    "samples": 2,
+    "max_prime": 20000
+  },
+  "memory": {
+    "backend": "stream_style_v1",
+    "working_set_mib": 512,
+    "sample_seconds": 8,
+    "samples": 2,
+    "minimum_cache_multiple": 4
+  },
+  "disk": {
+    "file_size_mib": 2048,
+    "reserve_mib": 4096,
+    "runtime_seconds": 40,
+    "ramp_seconds": 3,
+    "jobs": 1,
+    "ioengine": "libaio",
+    "mixed_read_percent": 70
+  },
+  "parallel": {
+    "stages": [
+      {
+        "count": 4,
+        "seconds": 240
+      },
+      {
+        "count": 8,
+        "seconds": 300
+      },
+      {
+        "count": 16,
+        "seconds": 360
+      }
+    ],
+    "max_memory_psi_some": 25,
+    "minimum_free_mib_per_agent": 320,
+    "minimum_observed_seconds": 150
+  },
+  "price": {
+    "monthly_amount": null,
+    "currency": null,
+    "source_url": null,
+    "includes_mandatory_fees": null
+  }
 }

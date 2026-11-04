@@ -216,20 +216,23 @@ def _worker_real(index: int, config: dict, deadline: float, base: Path,
             task_id=(index+5*round_index)%real_tasks.TASK_COUNT
             assigned.add(task_id)
             task_started=time.monotonic()
+            # The Herdr prompt timeout applies to the whole task, including any
+            # follow-up wait after a premature idle/done or stalled signal.
+            task_deadline=min(deadline,task_started+180)
             task_started_offset=task_started-stage_start
             try:
-                wait_ms=max(3000,int(remaining(deadline,180)*1000)-3000)
+                wait_ms=max(3000,int(remaining(task_deadline,180)*1000)-3000)
                 response=_herdr(["agent","prompt",name,real_tasks.task_prompt(task_id),
-                                 "--wait","--timeout",str(wait_ms)],deadline,wait_ms/1000+2)
+                                 "--wait","--timeout",str(wait_ms)],task_deadline,wait_ms/1000+2)
                 agent=response.get("result",{}).get("agent",{})
                 if agent.get("agent_status")=="blocked":
                     status="agent_error"
                 else:
                     verdict=real_tasks.validate_task(task_id,worktree)
-                    status="passed" if verdict["passed"] else _wait_real(name,task_id,worktree,deadline)
+                    status="passed" if verdict["passed"] else _wait_real(name,task_id,worktree,task_deadline)
             except HerdrCommandError as exc:
                 if exc.code=="agent_prompt_stalled":
-                    status=_wait_real(name,task_id,worktree,deadline)
+                    status=_wait_real(name,task_id,worktree,task_deadline)
                 elif exc.code=="timeout":
                     status=_classify_timeout(name,deadline)
                 else:

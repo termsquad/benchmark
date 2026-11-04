@@ -39,7 +39,7 @@ assert.deepEqual(page([1],2,2),{items:[],total:1,page:2,hasNext:false});"""
     },
     {
         "title": "CSV customer import",
-        "instructions": "Parse RFC-style comma-delimited rows with double-quoted commas, escaped quotes and CRLF; return row arrays. Implement importCustomers(csv) with id and normalized lowercase email; reject malformed emails and duplicate IDs.",
+        "instructions": "Parse RFC-style comma-delimited rows with double-quoted commas, escaped quotes and CRLF; return row arrays. Implement importCustomers(csv) returning rows with id and normalized lowercase email; omit malformed emails and retain the first valid row for each ID.",
         "files": {"parse.js": "exports.parseCsv=(text)=>{throw Error('TODO')};",
                   "import.js": "exports.importCustomers=(text)=>{throw Error('TODO')};"},
         "tests": """const {parseCsv}=require('./src/parse');
@@ -78,7 +78,7 @@ assert.deepEqual(authorize('Bearer abc',{id:'u1',token:'abc',roles:[]},'tickets'
     },
     {
         "title": "Signed and idempotent webhook receiver",
-        "instructions": "Implement HMAC SHA-256 hex signature verification with constant-time comparison, and receive(body,signature,secret,seenSet) which rejects invalid signatures and deduplicates event IDs; record only successfully processed IDs.",
+        "instructions": "Implement HMAC SHA-256 hex signature verification with constant-time comparison, and receive(body,signature,secret,seenSet) which rejects invalid signatures and deduplicates event IDs; record only successfully processed IDs. Return {accepted,duplicate}: accepted:true and duplicate:false for a new valid event, accepted:true and duplicate:true for a repeated valid event, and accepted:false,duplicate:false for an invalid signature.",
         "files": {"signature.js": "exports.verify=(body,signature,secret)=>{throw Error('TODO')};",
                   "receiver.js": "exports.receive=(body,signature,secret,seen)=>{throw Error('TODO')};"},
         "tests": """const crypto=require('node:crypto');

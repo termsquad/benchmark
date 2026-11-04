@@ -18,6 +18,33 @@ from reference_solutions import REFERENCES
 
 
 class AgentQueueTests(unittest.TestCase):
+    def test_failed_real_task_wait_is_bounded_by_its_own_timeout(self):
+        def herdr(args,*unused):
+            if args[:2]==['workspace','create']:
+                return {'result':{'workspace':{'workspace_id':'w1'},
+                                  'root_pane':{'pane_id':'w1:p1'}}}
+            return {'result':{'agent':{'agent_status':'done'}}}
+        cfg={'model':'gpt-6.1-terra','reasoning_effort':'xhigh',
+             'parallel':{'max_tasks_per_agent':{'4':1}}}
+        before=time.monotonic()
+        with patch('tsbench.agents.create_worktree',return_value=Path('/tmp/task')), \
+             patch('tsbench.agents._herdr',side_effect=herdr), \
+             patch('tsbench.agents.real_tasks.validate_task',return_value={'passed':False}), \
+             patch('tsbench.agents._wait_real',return_value='failed_tests') as wait:
+            result=agents._worker_real(0,cfg,before+500,Path('/tmp/base'),
+                                       Path('/tmp'),[],'tsb',4,before)
+        self.assertEqual(result['status'],'failed_tests')
+        self.assertLessEqual(wait.call_args.args[3],before+181)
+
+    def test_contracts_state_observable_csv_and_webhook_results(self):
+        from tsbench.real_tasks import task_prompt
+        csv=task_prompt(2)
+        webhook=task_prompt(5)
+        self.assertIn('omit malformed emails',csv)
+        self.assertIn('first valid row for each ID',csv)
+        self.assertIn('{accepted,duplicate}',webhook)
+        self.assertIn('accepted:false,duplicate:false',webhook)
+
     def test_real_worker_reports_herdr_start_timeout_as_timeout(self):
         def herdr(args,*unused):
             if args[:2]==["workspace","create"]:

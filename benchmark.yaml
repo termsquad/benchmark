@@ -1,5 +1,5 @@
 {
-  "suite_version": "1.1.1",
+  "suite_version": "1.1.2",
   "model": "gpt-6.1-terra",
   "reasoning_effort": "xhigh",
   "maximum_seconds": 2700,

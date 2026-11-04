@@ -1,6 +1,7 @@
 """Compare like-for-like verified runs, rejecting incompatible cohorts."""
 from __future__ import annotations
 from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 from statistics import median
 from .common import BenchmarkError, load_json, sha256_file
@@ -24,8 +25,22 @@ def signature(item: dict) -> tuple:
             m.get("tools",{}).get("fio"),m.get("tools",{}).get("sysbench"))
 
 
+def time_separated(group: list[dict]) -> bool:
+    try:
+        times = [datetime.fromisoformat(r["finished_at"]) for r in group]
+        if any(t.tzinfo is None or t.utcoffset() is None for t in times):
+            return False
+        times.sort()
+        return all((b-a).total_seconds() >= 3600 for a,b in zip(times,times[1:]))
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
 def compare(paths: list[Path]) -> dict:
     runs = [verified(p) for p in paths]
+    ids = [r.get("run_id") for r in runs]
+    if any(not isinstance(run_id,str) or not run_id for run_id in ids) or len(set(ids)) != len(ids):
+        raise BenchmarkError("Comparison requires distinct, nonempty run IDs")
     if len({signature(r) for r in runs})!=1:
         raise BenchmarkError("Incompatible suite/OS/model/toolchain cohorts, cannot produce controlled comparison")
     groups = defaultdict(list)
@@ -46,7 +61,7 @@ def compare(paths: list[Path]) -> dict:
                     values.append(value)
             return round(median(values),3) if values else None
         entry = {"provider":key[0],"plan":key[1],"region":key[2],
-                 "run_count":len(group),"publication_eligible":len(group)>=3,
+                 "run_count":len(group),"publication_eligible":len(group)>=3 and time_separated(group),
                  "cpu_single_events_per_sec_median":med("cpu","single_events_per_sec"),
                  "cpu_multi_events_per_sec_median":med("cpu","multi_events_per_sec"),
                  "memory_read_mib_per_sec_median":med("memory","read_mib_per_sec"),

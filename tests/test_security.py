@@ -90,6 +90,45 @@ class CampaignUninstallTests(unittest.TestCase):
 
 
 class ComparisonTests(unittest.TestCase):
+    def test_three_runs_without_time_separation_are_not_publication_eligible(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = root / "benchmark.yaml"
+            config.write_text("{}")
+            files = []
+            for i, minute in enumerate((0, 10, 20)):
+                payload = {"run_id": str(i), "suite_version": "1.0", "status": "complete",
+                           "finished_at": f"2026-11-03T10:{minute:02}:00+00:00",
+                           "machine": {"architecture": "x86_64", "os_version": "26.04", "tools": {}},
+                           "provenance": {"suite_config_sha256": "abc", "fixture_sha256": "abc",
+                                          "codex_version": "1", "herdr_version": "1",
+                                          "model": "gpt-6.1-terra", "reasoning_effort": "xhigh"},
+                           "cpu": {}, "memory": {}, "disk": {},
+                           "agents": {"single": {}, "parallel": []},
+                           "warnings": [], "errors": [], "price": {}, "elapsed_seconds": 1}
+                folder = root / str(i)
+                write_artifacts(folder, payload, config)
+                files.append(folder / "results.json")
+            self.assertFalse(compare(files)["providers"][0]["publication_eligible"])
+
+    def test_duplicate_run_ids_cannot_count_as_three_runs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = root / "benchmark.yaml"
+            config.write_text("{}")
+            payload = {"run_id": "same", "suite_version": "1.0", "status": "complete",
+                       "machine": {"architecture": "x86_64", "os_version": "26.04", "tools": {}},
+                       "provenance": {"suite_config_sha256": "abc", "fixture_sha256": "abc",
+                                      "codex_version": "1", "herdr_version": "1",
+                                      "model": "gpt-6.1-terra", "reasoning_effort": "xhigh"},
+                       "cpu": {}, "memory": {}, "disk": {},
+                       "agents": {"single": {}, "parallel": []},
+                       "warnings": [], "errors": [], "price": {}, "elapsed_seconds": 1}
+            folder = root / "result"
+            write_artifacts(folder, payload, config)
+            with self.assertRaises(BenchmarkError):
+                compare([folder / "results.json"] * 3)
+
     def test_incompatible_os_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             config=Path(tmp)/"benchmark.yaml"

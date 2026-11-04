@@ -17,6 +17,8 @@ def initialize(root: Path, suite_version: str, config_hash: str, benchmark_commi
     path = state_file(root)
     if path.exists():
         state = load_json(path)
+        if state.get("status", "active") == "aborted":
+            raise BenchmarkError("Campaign was aborted; export and uninstall before starting a new campaign")
         if state["config_sha256"] != config_hash or state["suite_version"] != suite_version:
             raise BenchmarkError("Existing campaign has another suite/config; export and uninstall before changing it")
         previous = state.get("benchmark_commit")
@@ -39,7 +41,20 @@ def initialize(root: Path, suite_version: str, config_hash: str, benchmark_commi
     root.mkdir(parents=True,exist_ok=True,mode=0o700)
     state = {"campaign_id":str(uuid.uuid4()),"suite_version":suite_version,
              "config_sha256":config_hash,"created_at":utc_now(),"eligible_runs":[],
-             "all_runs":[],"benchmark_commit":benchmark_commit}
+             "all_runs":[],"benchmark_commit":benchmark_commit,"status":"active"}
+    atomic_json(path,state)
+    return state
+
+
+def abort_campaign(root: Path) -> dict:
+    # Caller holds the exclusive lock shared with benchmark execution.
+    path=state_file(root)
+    state=load_json(path)
+    if state.get("status")=="aborted":
+        return state
+    state["status"]="aborted"
+    state["aborted_at"]=utc_now()
+    state.pop("export_receipt",None)
     atomic_json(path,state)
     return state
 

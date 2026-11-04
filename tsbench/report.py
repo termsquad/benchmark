@@ -25,12 +25,18 @@ def render(result: dict) -> str:
         "| Metric | Measured |","| --- | ---: |",
         "| CPU single | "+_metric(cpu,"single_events_per_sec","events/s")+" |",
         "| CPU multi | "+_metric(cpu,"multi_events_per_sec","events/s")+" |",
-        "| RAM read | "+_metric(memory,"read_mib_per_sec","MiB/s")+" |",
-        "| RAM write | "+_metric(memory,"write_mib_per_sec","MiB/s")+" |"]
+        "| RAM STREAM-style triad, 1 thread | "+_metric(memory.get("single"),"triad_mib_per_sec","MiB/s")+" |",
+        "| RAM STREAM-style triad, multi-thread | "+_metric(memory.get("multi"),"triad_mib_per_sec","MiB/s")+" |",
+        "| RAM measurement validity | "+str(memory.get("status","not_tested"))+" |"]
     for key,value in disk.items():
         if isinstance(value,dict):
             rows.append("| Disk "+key+" | "+_metric(value,"mib_per_sec","MiB/s")+"; "+
                         _metric(value,"iops","IOPS")+"; p95 "+_metric(value,"latency_p95_ms","ms")+" |")
+    mixed=disk.get("mixed_random_70r30w_qd16",{})
+    if mixed:
+        rows.append("| Disk mixed 70% read / 30% write QD16 | "+
+                    _metric(mixed.get("read"),"iops","read IOPS")+"; "+
+                    _metric(mixed.get("write"),"iops","write IOPS")+" |")
     rows += ["","## Agent workloads","",
              "Model: "+result["provenance"]["model"]+" / "+result["provenance"]["reasoning_effort"],
              "Single task: "+str(agents.get("single",{}).get("status","not_tested"))]
@@ -42,7 +48,9 @@ def render(result: dict) -> str:
              "Agent wall times include remote model latency. A rate-limited result is not evidence of poor VM performance.",
              "A validated concurrency stage is not a theoretical maximum supported by the VM."]
     if memory.get("status")=="limited":
-        rows.append("Memory throughput is synthetic and limited: its working set may fit CPU cache.")
+        rows.append("Memory results are **not eligible for RAM rankings**: "+str(memory.get("reason")))
+    else:
+        rows.append("STREAM-style memory bandwidth uses a cache-exceeding working set, not the official STREAM implementation.")
     for warning in result.get("warnings",[]):
         rows.append("- Warning: "+str(warning))
     for error in result.get("errors",[]):

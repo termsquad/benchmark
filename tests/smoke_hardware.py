@@ -23,7 +23,9 @@ with tempfile.TemporaryDirectory() as d:
     assert b["single"]["triad_mib_per_sec"]>0 and b["multi"]["copy_mib_per_sec"]>0,b
     assert len(c)==7,c
     assert c["mixed_random_70r30w_qd16"]["total_iops"]>0,c
-    assert all(x["iops"]>0 for x in c.values()),c
+    assert all(v["iops"]>0 for k,v in c.items() if k!="mixed_random_70r30w_qd16"),c
+    assert c["mixed_random_70r30w_qd16"]["read"]["iops"]>0,c
+    assert c["mixed_random_70r30w_qd16"]["write"]["iops"]>0,c
     assert len(list(raw.iterdir()))==12,"Missing hardware evidence"
     assert all(d not in p.read_text() for p in raw.iterdir()),"Scratch path leaked"
     assert not (Path(d)/"fio-benchmark.bin").exists(),"Disk scratch file survived"

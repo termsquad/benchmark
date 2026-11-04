@@ -48,25 +48,80 @@ def cpu(config: dict, deadline: float, raw_dir: Path | None = None) -> dict:
     return results
 
 
-def memory(config: dict, deadline: float, raw_dir: Path | None = None) -> dict:
-    p = config["memory"]
-    results = {"status":"limited","reason":"working_set_may_fit_cpu_cache",
-               "block_size":p["block_size"],"threads":1}
-    for mode in ("read", "write"):
-        samples = []
-        for sample in range(p["samples"]):
-            cmd = ["sysbench","memory","--memory-oper="+mode,
-                   "--memory-block-size="+p["block_size"],"--memory-total-size="+p["total_size"],
-                   "--threads=1","--time="+str(p["sample_seconds"]),"run"]
-            raw = require_success(run_command(cmd, remaining(deadline,p["sample_seconds"]+12)), "sysbench memory")
-            _save_raw(raw_dir,"memory-"+mode+"-"+str(sample+1)+".txt",raw)
-            match = re.search(r"\(([\d.]+) MiB/sec\)", raw)
-            if not match: raise BenchmarkError("sysbench memory throughput missing")
-            samples.append(float(match.group(1)))
-        results[mode+"_mib_per_sec"] = _mean(samples)
-        results[mode+"_samples"] = samples
-    return results
+MEMORY_BUILD_FLAGS = ("-O3", "-std=c11", "-fopenmp", "-march=x86-64")
 
+
+def build_memory_binary(destination: Path) -> dict:
+    """Build only from the audited package source, into a private owned directory."""
+    source = Path(__file__).with_name("stream.c")
+    if not source.is_file():
+        raise BenchmarkError("Frozen memory workload source missing")
+    destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if destination.exists() or destination.is_symlink():
+        raise BenchmarkError("Refusing to replace an existing memory workload binary")
+    response = run_command(["gcc", *MEMORY_BUILD_FLAGS, str(source), "-lm", "-o", str(destination)], 45)
+    require_success(response, "gcc stream-style memory binary")
+    destination.chmod(0o700)
+    from .common import sha256_file
+    return {"source_sha256":sha256_file(source),"binary_sha256":sha256_file(destination),
+            "flags":list(MEMORY_BUILD_FLAGS)}
+
+
+def _last_level_cache_bytes() -> int | None:
+    root = Path("/sys/devices/system/cpu/cpu0/cache")
+    sizes = []
+    for index in root.glob("index*"):
+        try:
+            level = int((index/"level").read_text().strip())
+            label = (index/"size").read_text().strip().upper()
+            multiplier = 1024**{"K":1,"M":2,"G":3}[label[-1]]
+            sizes.append((level,int(label[:-1])*multiplier))
+        except (OSError,ValueError,IndexError,KeyError):
+            continue
+    if not sizes:
+        return None
+    highest=max(level for level,_ in sizes)
+    return max(size for level,size in sizes if level==highest)
+
+
+def memory(config: dict, deadline: float, raw_dir: Path | None = None,
+           executable: Path | None = None) -> dict:
+    p = config["memory"]
+    if p.get("backend")!="stream_style_v1":
+        raise BenchmarkError("Expected memory backend stream_style_v1")
+    if executable is None or not executable.is_file():
+        raise BenchmarkError("Run tsbench setup to compile the memory workload first")
+    working_mib = int(p["working_set_mib"])
+    available = meminfo().get("MemAvailable",0)
+    llc = _last_level_cache_bytes()
+    results = {"backend":"stream_style_v1","working_set_mib":working_mib,
+               "last_level_cache_bytes":llc,"status":"validated"}
+    if available < (working_mib+512)*1048576:
+        return {**results,"status":"limited","reason":"insufficient_available_ram"}
+    if llc is None or working_mib*1048576 < llc*int(p["minimum_cache_multiple"]):
+        return {**results,"status":"limited","reason":"cannot_prove_working_set_exceeds_cache"}
+    import os
+    threads = max(1,len(os.sched_getaffinity(0)))
+    for mode,count in (("single",1),("multi",threads)):
+        samples=[]
+        for i in range(int(p["samples"])):
+            command=[str(executable),str(count),str(working_mib),str(p["sample_seconds"])]
+            raw=require_success(run_command(command,remaining(deadline,p["sample_seconds"]+25)),"STREAM-style RAM "+mode)
+            parsed=json.loads(raw)
+            if (parsed.get("backend")!="stream_style_v1" or
+                parsed.get("threads")!=count or parsed.get("working_set_mib")!=working_mib or
+                parsed.get("passes",0)<5 or not parsed.get("checksum",0)>0):
+                raise BenchmarkError("Invalid memory backend provenance or checksum")
+            for key in ("copy","scale","add","triad"):
+                value=parsed.get(key+"_mib_per_sec")
+                if not isinstance(value,(int,float)) or not 0<value<10**7:
+                    raise BenchmarkError("Invalid memory bandwidth: "+key)
+            _save_raw(raw_dir,"memory-"+mode+"-"+str(i+1)+".json",json.dumps(parsed,indent=2)+"\\n")
+            samples.append(parsed)
+        results[mode]={"threads":count,"samples":len(samples),
+                       **{key+"_mib_per_sec":_mean([v[key+"_mib_per_sec"] for v in samples])
+                          for key in ("copy","scale","add","triad")}}
+    return results
 
 def disk(config: dict, deadline: float, scratch: Path, raw_dir: Path | None = None) -> dict:
     p = config["disk"]

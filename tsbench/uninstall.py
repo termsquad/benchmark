@@ -82,7 +82,7 @@ def _uninstall_locked(root: Path, purge: bool, campaign: str | None,
             raise BenchmarkError("Purge requires a matching externally verified SHA256 receipt")
     # Only remove manifest-owned state under our fixed private root. Never touch global
     # Codex, Herdr, Python, Node, sysbench, fio, auth stores or third-party projects.
-    for name in ("scratch","tmp","venv") + (("exports",) if purge else ()):
+    for name in ("scratch","tmp","venv","bin") + (("exports",) if purge else ()):
         path=owned_path(root/name,root)
         if path.exists():
             if path.is_dir(): shutil.rmtree(path)
@@ -93,7 +93,7 @@ def _uninstall_locked(root: Path, purge: bool, campaign: str | None,
     if purge:
         owned_path(result_dir,root)
         if result_dir.exists(): shutil.rmtree(result_dir)
-        for file in ("campaign.json","ownership.json","benchmark.yaml",".lock"):
+        for file in ("campaign.json","ownership.json","benchmark.yaml","memory-build.json",".lock"):
             path=owned_path(root/file,root)
             path.unlink(missing_ok=True)
         residuals=sorted(p.name for p in root.iterdir())

@@ -99,7 +99,7 @@ def inventory(workspace: Path) -> dict:
             "swap_bytes":meminfo().get("SwapTotal"),"disk_bytes":usage.total,
             "disk_free_bytes":usage.free,"filesystem":_filesystem_type(workspace),
             "pressure":{"cpu":psi("cpu"),"memory":psi("memory"),"io":psi("io")},
-            "tools":{name:version(name) for name in ("python3","sysbench","fio","git","node","codex","herdr")}}
+            "tools":{name:version(name) for name in ("python3","sysbench","fio","git","node","codex","herdr","gcc")}}
 
 
 def verify_host(machine: dict, require_agents: bool) -> list[str]:

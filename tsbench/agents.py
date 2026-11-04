@@ -183,7 +183,7 @@ def _wait_real(name: str, task_id: int, worktree: Path, deadline: float) -> str:
 
 
 def _worker_real(index: int, config: dict, deadline: float, base: Path,
-                 scratch: Path, created: list, prefix: str, count: int) -> dict:
+                 scratch: Path, created: list, prefix: str, count: int, stage_start: float) -> dict:
     """One owned Herdr workspace per worker, multiple independent real code tasks."""
     name=(prefix+str(index).zfill(2))[:31]
     started=time.monotonic()
@@ -209,6 +209,7 @@ def _worker_real(index: int, config: dict, deadline: float, base: Path,
                 break
             task_id=(index+count*round_index)%real_tasks.TASK_COUNT
             task_started=time.monotonic()
+            task_started_offset=task_started-stage_start
             try:
                 wait_ms=max(3000,int(remaining(deadline,180)*1000)-3000)
                 response=_herdr(["agent","prompt",name,real_tasks.task_prompt(task_id),
@@ -228,8 +229,11 @@ def _worker_real(index: int, config: dict, deadline: float, base: Path,
                     status=exc.category
             except CommandTimeout:
                 status=_classify_timeout(name,deadline)
+            task_finished=time.monotonic()
             outcomes.append({"task_id":task_id,"status":status,
-                             "elapsed_seconds":round(time.monotonic()-task_started,3)})
+                             "started_offset_seconds":round(task_started_offset,3),
+                             "finished_offset_seconds":round(task_finished-stage_start,3),
+                             "elapsed_seconds":round(task_finished-task_started,3)})
             if status in ("rate_limited","authentication_error","timed_out","agent_error"):
                 break
         passed=sum(task["status"]=="passed" for task in outcomes)
@@ -269,7 +273,7 @@ def parallel(config: dict, deadline: float, base: Path, scratch: Path) -> list[d
             with ThreadPoolExecutor(max_workers=count) as executor:
                 real_mode=config.get("agent_workload")=="real"
                 futures = [executor.submit(_worker_real,index,config,worker_deadline,base,scratch,
-                                           created,prefix+str(count),count) if real_mode else
+                                           created,prefix+str(count),count,stage_start) if real_mode else
                            executor.submit(_worker,index,config,worker_deadline,base,scratch,
                                            created,prefix+str(count))
                            for index in range(count)]
@@ -282,14 +286,36 @@ def parallel(config: dict, deadline: float, base: Path, scratch: Path) -> list[d
             metrics = telemetry.stop()
             real_mode=config.get("agent_workload")=="real"
             minimum=config["parallel"].get("minimum_observed_seconds",0) if real_mode else 0
+            sustained_seconds=elapsed
+            if real_mode:
+                # Only time with >=75% of target agents actually processing tasks
+                # counts as sustained concurrency. Setup and idle time do not count.
+                import math
+                events=[]
+                for worker in tasks:
+                    for task in worker.get("task_results",[]):
+                        if "started_offset_seconds" in task and "finished_offset_seconds" in task:
+                            events.append((task["started_offset_seconds"],1))
+                            events.append((task["finished_offset_seconds"],-1))
+                events.sort()
+                active=0
+                previous=0.0
+                sustained_seconds=0.0
+                needed=max(1,math.ceil(count*0.75))
+                for at,change in events:
+                    if active>=needed:
+                        sustained_seconds+=max(0.0,at-previous)
+                    active+=change
+                    previous=at
             status = ("externally_constrained" if constrained else
                       "failed_host" if (metrics["oom_kills"] or 0)>0 else
                       "inconclusive" if metrics["oom_kills"] is None else
-                      "insufficient_sustained_load" if real_mode and elapsed<minimum else
+                      "insufficient_sustained_load" if real_mode and sustained_seconds<minimum else
                       "validated" if attempted>=count and passed/max(attempted,1)>=.75 else "inconclusive")
             results.append({"concurrency":count,"status":status,"passed":passed,
                             "attempted":attempted,"workload":"multi_file" if real_mode else "micro_smoke",
                             "minimum_sustained_seconds":minimum,
+                            "observed_sustained_seconds":round(sustained_seconds,3),
                             "throughput_per_minute":round(passed/max(elapsed,1)*60,4),
                             "elapsed_seconds":round(elapsed,3),"tasks":sorted(tasks,key=lambda x:x["task_id"]),
                             "telemetry":metrics})

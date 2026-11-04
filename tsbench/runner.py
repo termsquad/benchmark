@@ -75,6 +75,21 @@ def run(config_file: Path, root: Path, *, provider: str | None = None,
             result["provenance"]["codex_version"]=tools.get("codex")
             result["provenance"]["herdr_version"]=tools.get("herdr")
             errors=verify_host(machine,require_agents=True)
+            binary=root/"bin"/"tsbench-stream"
+            built=root/"memory-build.json"
+            if not binary.is_file() or not built.is_file():
+                errors.append("STREAM-style memory workload was not built; run tsbench setup")
+            else:
+                from .hardware import MEMORY_BUILD_FLAGS
+                from .common import sha256_file as _digest
+                memory_build=load_json(built)
+                if memory_build.get("binary_sha256")!=_digest(binary):
+                    errors.append("Compiled memory workload hash differs from build manifest")
+                if memory_build.get("source_sha256")!=_digest(Path(__file__).with_name("stream.c")):
+                    errors.append("Compiled workload source does not match installed package")
+                if memory_build.get("flags")!=list(MEMORY_BUILD_FLAGS):
+                    errors.append("Memory compiler flags do not match suite")
+                result["provenance"]["memory_build"]=memory_build
             if not errors:
                 for label,argv in (("Codex auth",["codex","login","status"]),
                                    ("Herdr server",["herdr","status","server","--json"])):
@@ -99,6 +114,8 @@ def run(config_file: Path, root: Path, *, provider: str | None = None,
                 try:
                     if section=="disk":
                         value=fn(config,phase_deadline,scratch/"disk",out/"raw")
+                    elif section=="memory":
+                        value=fn(config,phase_deadline,out/"raw",root/"bin"/"tsbench-stream")
                     elif section=="single" or section=="parallel":
                         value=fn(config,phase_deadline,base,scratch)
                     else:
@@ -107,8 +124,11 @@ def run(config_file: Path, root: Path, *, provider: str | None = None,
                         result["agents"][section]=value
                     else:
                         result[section]=value
-                    phase_ok = (value.get("status")=="passed" if section=="single" else
+                    phase_ok = (value.get("status")=="validated" if section=="memory" else
+                                value.get("status")=="passed" if section=="single" else
                                 any(x.get("status")=="validated" for x in value) if section=="parallel" else True)
+                    if not phase_ok:
+                        all_ok=False
                     result["phases"][section]={"status":"complete" if phase_ok else "inconclusive",
                                                 "elapsed_seconds":round(time.monotonic()-phase_start,2)}
                 except Exception as exc:

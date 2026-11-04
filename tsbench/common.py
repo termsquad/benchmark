@@ -56,6 +56,8 @@ def load_json(path: Path) -> dict:
 def owned_path(path: Path, root: Path, allow_root: bool = False) -> Path:
     root = root.expanduser().absolute()
     path = path.expanduser().absolute()
+    if ".." in root.parts or ".." in path.parts:
+        raise BenchmarkError("Refusing parent traversal in owned path")
     if path == Path("/") or root == Path("/") or (not allow_root and path == root):
         raise BenchmarkError("Refusing unsafe root path")
     if not path.is_relative_to(root):

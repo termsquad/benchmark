@@ -23,6 +23,27 @@ class SubprocessTests(unittest.TestCase):
 
 
 class CampaignUninstallTests(unittest.TestCase):
+    def test_purge_reports_residual_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            root = home / ".local" / "share" / "tsbench"
+            with patch("pathlib.Path.home", return_value=home):
+                state = initialize(root, "1.0", "aaa")
+                for i, hour in enumerate((1, 3, 5)):
+                    rid = "run-" + str(i)
+                    record(root, {"run_id": rid, "status": "complete",
+                                  "finished_at": f"2026-11-03T{hour:02}:00:00+00:00"})
+                    folder = root / "results" / rid
+                    folder.mkdir(parents=True)
+                    (folder / "manifest.json").write_text(json.dumps({"files": {}}))
+                receipt = export_campaign(root, home / "export.tar.gz")
+                residual = root / "unrecognized-file"
+                residual.write_text("retain")
+                result = uninstall(root, purge=True, campaign=state["campaign_id"],
+                                   verified_export=receipt["sha256"])
+                self.assertEqual(result["status"], "purged_with_residuals")
+                self.assertTrue(residual.exists())
+
     def test_purge_rejects_missing_external_receipt_and_preserves_user_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             home=Path(tmp)

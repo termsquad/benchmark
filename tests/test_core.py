@@ -30,6 +30,8 @@ class BasicTests(unittest.TestCase):
             self.assertEqual(owned_path(root/"data",root),root/"data")
             with self.assertRaises(BenchmarkError):
                 owned_path(root.parent/"other",root)
+            with self.assertRaises(BenchmarkError):
+                owned_path(root/".."/"other",root)
             (root/"link").symlink_to(root.parent)
             with self.assertRaises(BenchmarkError):
                 owned_path(root/"link"/"oops",root)

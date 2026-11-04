@@ -9,7 +9,7 @@ import time
 import uuid
 from . import __version__
 from .common import BenchmarkError, CommandTimeout, load_json, remaining, sha256_file, utc_now, run_command
-from .inventory import inventory, verify_host
+from .inventory import inventory, verify_host, herdr_server_ready
 from .fixtures import fixture_digest, create_base
 from .hardware import cpu, memory, disk
 from .agents import single, parallel
@@ -76,9 +76,9 @@ def run(config_file: Path, root: Path, *, provider: str | None = None,
             errors=verify_host(machine,require_agents=True)
             if not errors:
                 for label,argv in (("Codex auth",["codex","login","status"]),
-                                   ("Herdr server",["herdr","status","server"])):
+                                   ("Herdr server",["herdr","status","server","--json"])):
                     check=run_command(argv,remaining(phase_deadline,12))
-                    if check["returncode"]!=0:
+                    if (not herdr_server_ready(check) if label=="Herdr server" else check["returncode"]!=0):
                         errors.append(label+" unavailable")
             if errors:
                 result["errors"].extend(errors)
@@ -119,8 +119,12 @@ def run(config_file: Path, root: Path, *, provider: str | None = None,
             single_ok=result["agents"].get("single",{}).get("status")=="passed"
             stages=result["agents"].get("parallel",[])
             valid_stage=any(s.get("status")=="validated" for s in stages)
-            constrained=any(s.get("status") in ("externally_constrained","cleanup_incomplete") for s in stages)
-            result["status"]="complete" if all_ok and single_ok and valid_stage and not constrained else "partial"
+            expected=[int(s["count"]) for s in config["parallel"]["stages"]]
+            stages_complete=([s.get("concurrency") for s in stages]==expected and
+                             all(s.get("status")=="validated" or
+                                 (s.get("status")=="not_tested" and s.get("reason")=="resource_admission")
+                                 for s in stages))
+            result["status"]="complete" if all_ok and single_ok and valid_stage and stages_complete else "partial"
             return result
     except (KeyboardInterrupt,Exception) as exc:
         result["errors"].append(type(exc).__name__)

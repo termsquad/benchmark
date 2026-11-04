@@ -7,7 +7,7 @@ import shutil
 import sys
 from .common import BenchmarkError, atomic_json, load_json, sha256_file
 from .campaign import state_dir, state_file, initialize
-from .inventory import inventory, verify_host
+from .inventory import inventory, verify_host, herdr_server_ready
 from .runner import run as run_benchmark
 from .compare import compare as compare_runs
 from .uninstall import uninstall, export_campaign
@@ -72,8 +72,8 @@ def main(argv=None):
                     errors.append("Codex authentication is not ready")
             if not args.hardware_only and shutil.which("herdr"):
                 from .common import run_command
-                status=run_command(["herdr","status","server"],10)
-                if status["returncode"]!=0:
+                status=run_command(["herdr","status","server","--json"],10)
+                if not herdr_server_ready(status):
                     errors.append("Herdr server is not reachable")
             output={"status":"ready" if not errors else "invalid_environment","errors":errors,"machine":machine}
         elif args.command=="run":

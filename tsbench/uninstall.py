@@ -91,7 +91,11 @@ def _uninstall_locked(root: Path, purge: bool, campaign: str | None,
         for file in ("campaign.json","ownership.json","benchmark.yaml",".lock"):
             path=owned_path(root/file,root)
             path.unlink(missing_ok=True)
-        if not any(root.iterdir()): root.rmdir()
+        residuals=sorted(p.name for p in root.iterdir())
+        if residuals:
+            return {"status":"purged_with_residuals","remaining_results":False,
+                    "residuals":residuals}
+        root.rmdir()
         return {"status":"purged","remaining_results":False}
     return {"status":"conservative_uninstall","remaining_results":result_dir.exists(),
             "message":"Results retained until verified export and three eligible runs"}

@@ -1,11 +1,23 @@
 """Linux inventory, including cgroup constraints and host pressure."""
 from __future__ import annotations
 import os
+import json
 from pathlib import Path
 import platform
 import shutil
 import subprocess
 from .common import BenchmarkError
+
+
+def herdr_server_ready(response: dict) -> bool:
+    """Herdr status can exit successfully when the server is stopped."""
+    if response.get("returncode") != 0:
+        return False
+    try:
+        status = json.loads(response.get("stdout", ""))
+    except (TypeError, ValueError):
+        return False
+    return isinstance(status, dict) and status.get("running") is True
 
 
 def os_release() -> dict:

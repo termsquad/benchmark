@@ -10,6 +10,7 @@ from .common import BenchmarkError, CommandTimeout, require_success, run_command
 from .fixtures import task_prompt, create_worktree, validate_task
 from .telemetry import Telemetry
 from .inventory import meminfo, psi
+from . import real_tasks
 
 
 def classify(output: str) -> str:
@@ -47,15 +48,17 @@ class HerdrCommandError(BenchmarkError):
 
 def single(config: dict, deadline: float, base: Path, scratch: Path) -> dict:
     worktree = create_worktree(base,scratch,"single")
+    real_mode=config.get("agent_workload")=="real"
+    task_id=15 if real_mode else 16
     telemetry = Telemetry().start()
     start = time.monotonic()
     cmd = ["codex","exec","--model",config["model"],"-c",
            'model_reasoning_effort="'+config["reasoning_effort"]+'"',
            "-c",'approval_policy="never"',"--sandbox","workspace-write",
-           "--json",task_prompt(16)]
+           "--json",real_tasks.task_prompt(task_id) if real_mode else task_prompt(task_id)]
     try:
         response = run_command(cmd,remaining(deadline,450),cwd=worktree,max_output=180000)
-        verdict = validate_task(16,worktree)
+        verdict = real_tasks.validate_task(task_id,worktree) if real_mode else validate_task(task_id,worktree)
         outcome = ("passed" if verdict["passed"] and response["returncode"]==0 else
                    "failed_tests" if response["returncode"]==0 else
                    classify(response["stderr"]+"\n"+response["stdout"]))
@@ -163,6 +166,88 @@ def _worker(index: int, config: dict, deadline: float, base: Path, scratch: Path
         return {"task_id":index,"status":category,"elapsed_seconds":round(time.monotonic()-started,3)}
 
 
+def _wait_real(name: str, task_id: int, worktree: Path, deadline: float) -> str:
+    """Preserve the v1 Codex fix: no duplicate prompts on early 'done' states."""
+    last_status=None
+    while remaining(deadline,1)>0:
+        agent=_herdr(["agent","get",name],deadline,5).get("result",{}).get("agent",{})
+        status=agent.get("agent_status")
+        last_status=status
+        if status=="blocked":
+            return "agent_error"
+        if status in ("idle","done") and real_tasks.validate_task(
+                task_id,worktree,timeout=remaining(deadline,10))["passed"]:
+            return "passed"
+        time.sleep(min(1.0,remaining(deadline,1)))
+    return "failed_tests" if last_status in ("idle","done") else "timed_out"
+
+
+def _worker_real(index: int, config: dict, deadline: float, base: Path,
+                 scratch: Path, created: list, prefix: str, count: int) -> dict:
+    """One owned Herdr workspace per worker, multiple independent real code tasks."""
+    name=(prefix+str(index).zfill(2))[:31]
+    started=time.monotonic()
+    outcomes=[]
+    try:
+        worktree=create_worktree(base,scratch,name)
+        response=_herdr(["workspace","create","--cwd",str(worktree),
+                         "--label","tsbench-"+name,"--no-focus"],deadline)
+        data=response.get("result",{})
+        workspace=data["workspace"]["workspace_id"]
+        pane=data["root_pane"]["pane_id"]
+        created.append(workspace)
+        # Use exactly the same narrow worktree/base trust as the v1 Codex fix.
+        trust=("projects={"+json.dumps(str(base))+'={trust_level="trusted"},'+
+               json.dumps(str(worktree))+'={trust_level="trusted"}}')
+        _herdr(["agent","start",name,"--kind","codex","--pane",pane,"--timeout","25000",
+                "--","-m",config["model"],"-c",
+                'model_reasoning_effort="'+config["reasoning_effort"]+'"',"-c",trust,
+                "--sandbox","workspace-write","--ask-for-approval","never"],deadline,32)
+        max_tasks=int(config["parallel"]["max_tasks_per_agent"].get(str(count),2))
+        for round_index in range(max_tasks):
+            if remaining(deadline,30)<30:
+                break
+            task_id=(index+count*round_index)%real_tasks.TASK_COUNT
+            task_started=time.monotonic()
+            try:
+                wait_ms=max(3000,int(remaining(deadline,180)*1000)-3000)
+                response=_herdr(["agent","prompt",name,real_tasks.task_prompt(task_id),
+                                 "--wait","--timeout",str(wait_ms)],deadline,wait_ms/1000+2)
+                agent=response.get("result",{}).get("agent",{})
+                if agent.get("agent_status")=="blocked":
+                    status="agent_error"
+                else:
+                    verdict=real_tasks.validate_task(task_id,worktree)
+                    status="passed" if verdict["passed"] else _wait_real(name,task_id,worktree,deadline)
+            except HerdrCommandError as exc:
+                if exc.code=="agent_prompt_stalled":
+                    status=_wait_real(name,task_id,worktree,deadline)
+                elif exc.code=="timeout":
+                    status=_classify_timeout(name,deadline)
+                else:
+                    status=exc.category
+            except CommandTimeout:
+                status=_classify_timeout(name,deadline)
+            outcomes.append({"task_id":task_id,"status":status,
+                             "elapsed_seconds":round(time.monotonic()-task_started,3)})
+            if status in ("rate_limited","authentication_error","timed_out","agent_error"):
+                break
+        passed=sum(task["status"]=="passed" for task in outcomes)
+        failure=next((task["status"] for task in outcomes if task["status"]!="passed"),None)
+        return {"worker":index,"task_id":index,"attempted":len(outcomes),
+                "passed":passed,"status":failure or ("passed" if outcomes else "not_tested"),
+                "task_results":outcomes,"elapsed_seconds":round(time.monotonic()-started,3)}
+    except (CommandTimeout,HerdrCommandError) as exc:
+        status=_classify_timeout(name,deadline) if isinstance(exc,CommandTimeout) else exc.category
+        return {"worker":index,"task_id":index,"status":status,"attempted":len(outcomes),
+                "passed":sum(t["status"]=="passed" for t in outcomes),"task_results":outcomes,
+                "elapsed_seconds":round(time.monotonic()-started,3)}
+    except Exception as exc:
+        return {"worker":index,"task_id":index,"status":classify(str(exc)),
+                "attempted":len(outcomes),"passed":sum(t["status"]=="passed" for t in outcomes),
+                "task_results":outcomes,"elapsed_seconds":round(time.monotonic()-started,3)}
+
+
 def parallel(config: dict, deadline: float, base: Path, scratch: Path) -> list[dict]:
     results = []
     prefix = "tsb"+uuid.uuid4().hex[:7]
@@ -182,19 +267,29 @@ def parallel(config: dict, deadline: float, base: Path, scratch: Path) -> list[d
         tasks = []
         try:
             with ThreadPoolExecutor(max_workers=count) as executor:
-                futures = [executor.submit(_worker,index,config,worker_deadline,base,scratch,created,prefix+str(count))
+                real_mode=config.get("agent_workload")=="real"
+                futures = [executor.submit(_worker_real,index,config,worker_deadline,base,scratch,
+                                           created,prefix+str(count),count) if real_mode else
+                           executor.submit(_worker,index,config,worker_deadline,base,scratch,
+                                           created,prefix+str(count))
                            for index in range(count)]
                 for f in as_completed(futures):
                     tasks.append(f.result())
             elapsed = time.monotonic()-stage_start
-            passed = sum(x["status"]=="passed" for x in tasks)
+            attempted = sum(x.get("attempted",1) for x in tasks)
+            passed = sum(x.get("passed",1 if x["status"]=="passed" else 0) for x in tasks)
             constrained = any(x["status"] in ("rate_limited","authentication_error") for x in tasks)
             metrics = telemetry.stop()
+            real_mode=config.get("agent_workload")=="real"
+            minimum=config["parallel"].get("minimum_observed_seconds",0) if real_mode else 0
             status = ("externally_constrained" if constrained else
                       "failed_host" if (metrics["oom_kills"] or 0)>0 else
                       "inconclusive" if metrics["oom_kills"] is None else
-                      "validated" if passed/count>=.75 else "inconclusive")
+                      "insufficient_sustained_load" if real_mode and elapsed<minimum else
+                      "validated" if attempted>=count and passed/max(attempted,1)>=.75 else "inconclusive")
             results.append({"concurrency":count,"status":status,"passed":passed,
+                            "attempted":attempted,"workload":"multi_file" if real_mode else "micro_smoke",
+                            "minimum_sustained_seconds":minimum,
                             "throughput_per_minute":round(passed/max(elapsed,1)*60,4),
                             "elapsed_seconds":round(elapsed,3),"tasks":sorted(tasks,key=lambda x:x["task_id"]),
                             "telemetry":metrics})

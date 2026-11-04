@@ -11,10 +11,34 @@ from unittest.mock import patch
 from tsbench.common import load_json
 from tsbench.runner import run
 from tsbench.cli import main
-from tsbench.agents import classify, _worker
+from tsbench.agents import classify, _worker, parallel
+from tsbench.inventory import oom_kills
 
 
 class RunValidityTests(unittest.TestCase):
+    def test_guest_oom_counter_is_read_from_vmstat(self):
+        def read(path, *args, **kwargs):
+            if str(path) == "/proc/vmstat":
+                return "pgfault 100\noom_kill 3\n"
+            raise FileNotFoundError(str(path))
+        with patch("pathlib.Path.read_text", autospec=True, side_effect=read):
+            self.assertEqual(oom_kills(), 3)
+
+    def test_parallel_stage_with_unknown_oom_is_not_validated(self):
+        class FakeTelemetry:
+            def start(self): return self
+            def stop(self): return {"oom_kills": None}
+        config = {"parallel": {"stages": [{"count": 4, "seconds": 90}],
+                               "minimum_free_mib_per_agent": 1, "max_memory_psi_some": 25}}
+        def worker(index, *args):
+            return {"task_id": index, "status": "passed"}
+        with patch("tsbench.agents.meminfo", return_value={"MemAvailable": 1024**3}), \
+             patch("tsbench.agents.psi", return_value={}), \
+             patch("tsbench.agents.Telemetry", FakeTelemetry), \
+             patch("tsbench.agents._worker", side_effect=worker):
+            result = parallel(config, time.monotonic()+100, Path('/tmp/base'), Path('/tmp'))
+        self.assertEqual(result[0]["status"], "inconclusive")
+
     def test_herdr_trusts_only_the_generated_fixture_and_worktree(self):
         base = Path('/tmp/tsbench.test/fixture-base')
         worktree = Path('/tmp/tsbench.test/task-01')

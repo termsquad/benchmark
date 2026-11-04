@@ -53,7 +53,8 @@ def psi(kind: str) -> dict:
 
 def oom_kills() -> int | None:
     try:
-        for line in Path("/sys/fs/cgroup/memory.events").read_text().splitlines():
+        # Guest-wide count also covers agents launched in Herdr's separate cgroup.
+        for line in Path("/proc/vmstat").read_text().splitlines():
             if line.startswith("oom_kill "):
                 return int(line.split()[1])
     except (OSError, ValueError):

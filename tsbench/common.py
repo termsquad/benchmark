@@ -78,16 +78,27 @@ def run_command(args: list[str], timeout: float, cwd: Path | None = None, max_ou
         args, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         start_new_session=True, text=True, encoding="utf-8", errors="replace"
     )
-    try:
-        out, err = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        os.killpg(proc.pid, signal.SIGTERM)
+    def stop_owned_process():
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
         try:
             proc.communicate(timeout=2)
         except subprocess.TimeoutExpired:
-            os.killpg(proc.pid, signal.SIGKILL)
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             proc.communicate()
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        stop_owned_process()
         raise CommandTimeout("Command exceeded its time budget: " + args[0])
+    except BaseException:
+        stop_owned_process()
+        raise
     return {"returncode":proc.returncode, "stdout":out[:max_output], "stderr":err[:max_output],
             "elapsed_seconds":round(time.monotonic()-start,3)}
 

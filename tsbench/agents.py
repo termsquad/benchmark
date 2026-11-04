@@ -134,6 +134,7 @@ def parallel(config: dict, deadline: float, base: Path, scratch: Path) -> list[d
             metrics = telemetry.stop()
             status = ("externally_constrained" if constrained else
                       "failed_host" if (metrics["oom_kills"] or 0)>0 else
+                      "inconclusive" if metrics["oom_kills"] is None else
                       "validated" if passed/count>=.75 else "inconclusive")
             results.append({"concurrency":count,"status":status,"passed":passed,
                             "throughput_per_minute":round(passed/max(elapsed,1)*60,4),

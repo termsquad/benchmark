@@ -56,6 +56,7 @@ class Telemetry:
                 "peak_memory_psi_some_avg10":peak("memory_psi_some_avg10"),
                 "peak_io_psi_some_avg10":peak("io_psi_some_avg10"),
                 "oom_kills":max(0,current-self.initial_oom) if current is not None and self.initial_oom is not None else None,
+                "oom_scope":"guest" if current is not None and self.initial_oom is not None else "unavailable",
                 "sample_count":len(self.samples)}
 
     def stop(self):

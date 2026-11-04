@@ -1,6 +1,11 @@
 """Security, lifecycle, timing and comparison regression tests."""
 import json
+import os
+import signal
+import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -13,6 +18,34 @@ from tsbench.uninstall import export_campaign, uninstall
 
 
 class SubprocessTests(unittest.TestCase):
+    def test_interrupt_stops_owned_subprocess(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pidfile = Path(tmp) / "child.pid"
+            child = "import os,time;open(%r,'w').write(str(os.getpid()));time.sleep(30)" % str(pidfile)
+            parent = ("from tsbench.common import run_command\n"
+                      "try:\n run_command([%r,'-c',%r],30)\n"
+                      "except KeyboardInterrupt: pass\n") % (sys.executable, child)
+            process = subprocess.Popen([sys.executable, "-c", parent],
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            child_pid = None
+            try:
+                deadline = time.monotonic() + 5
+                while not pidfile.exists() and time.monotonic() < deadline:
+                    time.sleep(.02)
+                self.assertTrue(pidfile.exists(), "child did not start")
+                child_pid = int(pidfile.read_text())
+                process.send_signal(signal.SIGINT)
+                process.wait(timeout=5)
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(child_pid, 0)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait()
+                if child_pid is not None:
+                    try: os.kill(child_pid, signal.SIGKILL)
+                    except ProcessLookupError: pass
+
     def test_timeout_kills_process_group(self):
         with self.assertRaises(CommandTimeout):
             run_command(["python3","-c","import time;time.sleep(4)"],.1)

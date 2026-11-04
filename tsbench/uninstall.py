@@ -40,7 +40,7 @@ def export_campaign(root: Path, destination: Path) -> dict:
 
 
 def uninstall(root: Path, purge: bool = False, campaign: str | None = None,
-              verified_export: str | None = None) -> dict:
+              verified_export: str | None = None, aborted: bool = False) -> dict:
     root = root.expanduser().absolute()
     expected = (Path.home()/".local"/"share"/"tsbench").absolute()
     if root!=expected or root.is_symlink():
@@ -55,11 +55,11 @@ def uninstall(root: Path, purge: bool = False, campaign: str | None = None,
             fcntl.flock(handle,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError:
             raise BenchmarkError("Refusing uninstall while a benchmark is active")
-        return _uninstall_locked(root,purge,campaign,verified_export)
+        return _uninstall_locked(root,purge,campaign,verified_export,aborted)
 
 
 def _uninstall_locked(root: Path, purge: bool, campaign: str | None,
-                      verified_export: str | None) -> dict:
+                      verified_export: str | None, aborted: bool = False) -> dict:
     root = root.expanduser().absolute()
     expected = (Path.home()/".local"/"share"/"tsbench").absolute()
     if root!=expected or root.is_symlink():
@@ -70,8 +70,13 @@ def _uninstall_locked(root: Path, purge: bool, campaign: str | None,
     state=load_json(state_path)
     result_dir=owned_path(root/"results",root)
     if purge:
-        if campaign!=state["campaign_id"] or len(state["eligible_runs"])<3:
-            raise BenchmarkError("Purge requires the matching campaign and three eligible runs")
+        if campaign!=state["campaign_id"]:
+            raise BenchmarkError("Purge requires matching campaign ID")
+        if aborted:
+            if state.get("status")!="aborted":
+                raise BenchmarkError("Aborted purge requires tsbench abort first")
+        elif len(state["eligible_runs"])<3:
+            raise BenchmarkError("Purge requires three eligible runs, or --aborted on a stopped campaign")
         receipt=state.get("export_receipt",{})
         if not verified_export or verified_export!=receipt.get("sha256"):
             raise BenchmarkError("Purge requires a matching externally verified SHA256 receipt")

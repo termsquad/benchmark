@@ -16,7 +16,7 @@ def classify(output: str) -> str:
     text = output.lower()
     if re.search(r"rate.?limit|429|quota exceeded|usage limit", text):
         return "rate_limited"
-    if re.search(r"unauthorized|authentication failed|login required|401", text):
+    if re.search(r"unauthorized|authentication failed|authentication_error|login required|401", text):
         return "authentication_error"
     return "agent_error"
 

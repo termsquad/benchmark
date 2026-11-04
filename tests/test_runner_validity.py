@@ -10,9 +10,14 @@ from unittest.mock import patch
 from tsbench.common import load_json
 from tsbench.runner import run
 from tsbench.cli import main
+from tsbench.agents import classify
 
 
 class RunValidityTests(unittest.TestCase):
+    def test_herdr_wrapped_authentication_error_remains_external(self):
+        self.assertEqual(classify("Herdr command failed: authentication_error"),
+                         "authentication_error")
+
     def test_doctor_rejects_herdr_server_that_is_not_running(self):
         machine = {"tools": {}, "pressure": {"memory": {}}}
 

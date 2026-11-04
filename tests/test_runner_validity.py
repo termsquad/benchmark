@@ -16,6 +16,25 @@ from tsbench.inventory import oom_kills
 
 
 class RunValidityTests(unittest.TestCase):
+    def test_early_done_does_not_fail_a_task_before_its_validator_passes(self):
+        calls = []
+        def herdr(args, *unused):
+            calls.append(args)
+            if args[:2] == ["workspace", "create"]:
+                return {"result": {"workspace": {"workspace_id": "w1"},
+                                   "root_pane": {"pane_id": "w1:p1"}}}
+            if args[:2] in (["agent", "prompt"], ["agent", "get"]):
+                return {"result": {"agent": {"agent_status": "done"}}}
+            return {}
+        with patch("tsbench.agents.create_worktree", return_value=Path('/tmp/task')), \
+             patch("tsbench.agents._herdr", side_effect=herdr), \
+             patch("tsbench.agents.validate_task", side_effect=[{"passed": False}, {"passed": True}]), \
+             patch("tsbench.agents.time.sleep"):
+            result = _worker(0, {"model": "gpt-6.1-terra", "reasoning_effort": "xhigh"},
+                             time.monotonic()+60, Path('/tmp/base'), Path('/tmp'), [], "tsb")
+        self.assertEqual(result["status"], "passed")
+        self.assertEqual(sum(args[:2] == ["agent", "prompt"] for args in calls), 1)
+
     def test_stalled_prompt_waits_without_resubmission_until_task_is_validated(self):
         calls = []
         states = iter(["idle", "working", "done"])

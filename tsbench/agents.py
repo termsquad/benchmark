@@ -91,24 +91,21 @@ def _herdr(args: list[str], deadline: float, limit: float = 35) -> dict:
         raise BenchmarkError("Unexpected Herdr JSON")
 
 
-def _wait_for_stalled_agent(name: str, task_id: int, worktree: Path, deadline: float) -> str:
-    # The prompt was accepted; never send it again. Wait for a settled state and
-    # a passing validator, or for an observed completed/failed turn.
-    observed_working = False
+def _wait_for_task_result(name: str, task_id: int, worktree: Path, deadline: float) -> str:
+    # A stalled prompt or an early idle/done signal can precede actual work.
+    # Never resend it; let the objective validator run until the fixed deadline.
+    last_status = None
     while remaining(deadline,1)>0:
         agent = _herdr(["agent","get",name],deadline,5).get("result",{}).get("agent",{})
         status = agent.get("agent_status")
-        if status == "working":
-            observed_working = True
-        elif status == "blocked":
+        last_status = status
+        if status == "blocked":
             return "agent_error"
-        elif status in ("idle","done"):
-            if validate_task(task_id,worktree)["passed"]:
+        if status in ("idle","done"):
+            if validate_task(task_id,worktree,timeout=remaining(deadline,10))["passed"]:
                 return "passed"
-            if status == "done" or observed_working:
-                return "failed_tests"
         time.sleep(min(1.0,remaining(deadline,1)))
-    return "timed_out"
+    return "failed_tests" if last_status in ("idle","done") else "timed_out"
 
 
 def _worker(index: int, config: dict, deadline: float, base: Path, scratch: Path, created: list, prefix: str) -> dict:
@@ -135,13 +132,14 @@ def _worker(index: int, config: dict, deadline: float, base: Path, scratch: Path
         except HerdrCommandError as exc:
             if exc.code != "agent_prompt_stalled":
                 raise
-            status = _wait_for_stalled_agent(name,index,worktree,deadline)
+            status = _wait_for_task_result(name,index,worktree,deadline)
             return {"task_id":index,"status":status,"elapsed_seconds":round(time.monotonic()-started,3)}
         if prompted.get("result",{}).get("agent",{}).get("agent_status")=="blocked":
             return {"task_id":index,"status":"agent_error","reason_code":"agent_blocked",
                     "elapsed_seconds":round(time.monotonic()-started,3)}
         validated = validate_task(index,worktree)
-        return {"task_id":index,"status":"passed" if validated["passed"] else "failed_tests",
+        status = "passed" if validated["passed"] else _wait_for_task_result(name,index,worktree,deadline)
+        return {"task_id":index,"status":status,
                 "elapsed_seconds":round(time.monotonic()-started,3)}
     except CommandTimeout:
         return {"task_id":index,"status":"timed_out","elapsed_seconds":round(time.monotonic()-started,3)}

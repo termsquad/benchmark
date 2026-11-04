@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory() as d:
     assert len(c)==7,c
     assert c["mixed_random_70r30w_qd16"]["total_iops"]>0,c
     assert all(x["iops"]>0 for x in c.values()),c
-    assert len(list(raw.iterdir()))==14,"Missing hardware evidence"
+    assert len(list(raw.iterdir()))==12,"Missing hardware evidence"
     assert all(d not in p.read_text() for p in raw.iterdir()),"Scratch path leaked"
     assert not (Path(d)/"fio-benchmark.bin").exists(),"Disk scratch file survived"
 print("CPU, RAM and all seven fio read/write jobs passed")

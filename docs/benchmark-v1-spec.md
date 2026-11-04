@@ -184,8 +184,12 @@ For unattended execution, scope file write access to the benchmark fixture and s
 ```bash
 codex exec --model gpt-6.1-terra \
   -c 'model_reasoning_effort="xhigh"' \
-  --json --full-auto '<versioned task prompt>'
+  -c 'approval_policy="never"' --sandbox workspace-write \
+  --json '<versioned task prompt>'
 ```
+
+Codex CLI 0.166.0 does not accept `--full-auto`; the explicit sandbox and approval
+settings above use the installed CLI's supported unattended interface.
 
 The Herdr interactive invocation uses its native `agent start` / `agent prompt` surface and passes the equivalent Codex flags after `--` where supported. `codex exec` and the interactive Herdr path are **different execution surfaces**. Record which was used; do not merge their timing measurements without flagging the distinction.
 

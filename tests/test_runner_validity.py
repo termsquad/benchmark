@@ -11,11 +11,50 @@ from unittest.mock import patch
 from tsbench.common import load_json
 from tsbench.runner import run
 from tsbench.cli import main
-from tsbench.agents import classify, _worker, parallel
+from tsbench.agents import classify, _worker, parallel, single
 from tsbench.inventory import oom_kills
 
 
 class RunValidityTests(unittest.TestCase):
+    def test_stalled_prompt_waits_without_resubmission_until_task_is_validated(self):
+        calls = []
+        states = iter(["idle", "working", "done"])
+        def herdr(args, *unused):
+            calls.append(args)
+            if args[:2] == ["workspace", "create"]:
+                return {"result": {"workspace": {"workspace_id": "w1"},
+                                   "root_pane": {"pane_id": "w1:p1"}}}
+            if args[:2] == ["agent", "prompt"]:
+                from tsbench.agents import HerdrCommandError
+                raise HerdrCommandError("agent_prompt_stalled", "agent_error")
+            if args[:2] == ["agent", "get"]:
+                return {"result": {"agent": {"agent_status": next(states)}}}
+            return {}
+        with patch("tsbench.agents.create_worktree", return_value=Path('/tmp/task')), \
+             patch("tsbench.agents._herdr", side_effect=herdr), \
+             patch("tsbench.agents.validate_task", side_effect=[{"passed": False}, {"passed": True}]), \
+             patch("tsbench.agents.time.sleep"):
+            result = _worker(0, {"model": "gpt-6.1-terra", "reasoning_effort": "xhigh"},
+                             time.monotonic()+60, Path('/tmp/base'), Path('/tmp'), [], "tsb")
+        self.assertEqual(result["status"], "passed")
+        self.assertEqual(sum(args[:2] == ["agent", "prompt"] for args in calls), 1)
+
+    def test_single_agent_uses_supported_unattended_codex_flags(self):
+        class FakeTelemetry:
+            def start(self): return self
+            def stop(self): return {}
+        with patch("tsbench.agents.create_worktree", return_value=Path('/tmp/task')), \
+             patch("tsbench.agents.Telemetry", FakeTelemetry), \
+             patch("tsbench.agents.validate_task", return_value={"passed": True}), \
+             patch("tsbench.agents.run_command", return_value={"returncode": 0, "stdout": ""}) as run_cmd:
+            result = single({"model": "gpt-6.1-terra", "reasoning_effort": "xhigh"},
+                            time.monotonic()+60, Path('/tmp/base'), Path('/tmp'))
+        self.assertEqual(result["status"], "passed")
+        argv = run_cmd.call_args.args[0]
+        self.assertNotIn("--full-auto", argv)
+        self.assertIn("workspace-write", argv)
+        self.assertIn('approval_policy="never"', argv)
+
     def test_guest_oom_counter_is_read_from_vmstat(self):
         def read(path, *args, **kwargs):
             if str(path) == "/proc/vmstat":

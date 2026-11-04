@@ -38,13 +38,21 @@ def _usage_from_codex_jsonl(output: str) -> dict | None:
     return None
 
 
+class HerdrCommandError(BenchmarkError):
+    def __init__(self, code: str, category: str):
+        super().__init__("Herdr command failed: " + code + ": " + category)
+        self.code = code
+        self.category = category
+
+
 def single(config: dict, deadline: float, base: Path, scratch: Path) -> dict:
     worktree = create_worktree(base,scratch,"single")
     telemetry = Telemetry().start()
     start = time.monotonic()
     cmd = ["codex","exec","--model",config["model"],"-c",
            'model_reasoning_effort="'+config["reasoning_effort"]+'"',
-           "--json","--full-auto",task_prompt(16)]
+           "-c",'approval_policy="never"',"--sandbox","workspace-write",
+           "--json",task_prompt(16)]
     try:
         response = run_command(cmd,remaining(deadline,450),cwd=worktree,max_output=180000)
         verdict = validate_task(16,worktree)
@@ -68,11 +76,39 @@ def single(config: dict, deadline: float, base: Path, scratch: Path) -> dict:
 def _herdr(args: list[str], deadline: float, limit: float = 35) -> dict:
     response = run_command(["herdr",*args],remaining(deadline,limit),max_output=12000)
     if response["returncode"]!=0:
-        raise BenchmarkError("Herdr command failed: "+" ".join(args[:2])+": "+classify(response["stderr"]))
+        code = "unknown"
+        try:
+            error = json.loads(response["stderr"]).get("error",{})
+            candidate = error.get("code", "")
+            if isinstance(candidate,str) and re.fullmatch(r"[a-z0-9_]{1,80}",candidate):
+                code = candidate
+        except (ValueError,AttributeError):
+            pass
+        raise HerdrCommandError(code,classify(response["stderr"]+"\n"+response["stdout"]))
     try:
         return json.loads(response["stdout"])
     except json.JSONDecodeError:
         raise BenchmarkError("Unexpected Herdr JSON")
+
+
+def _wait_for_stalled_agent(name: str, task_id: int, worktree: Path, deadline: float) -> str:
+    # The prompt was accepted; never send it again. Wait for a settled state and
+    # a passing validator, or for an observed completed/failed turn.
+    observed_working = False
+    while remaining(deadline,1)>0:
+        agent = _herdr(["agent","get",name],deadline,5).get("result",{}).get("agent",{})
+        status = agent.get("agent_status")
+        if status == "working":
+            observed_working = True
+        elif status == "blocked":
+            return "agent_error"
+        elif status in ("idle","done"):
+            if validate_task(task_id,worktree)["passed"]:
+                return "passed"
+            if status == "done" or observed_working:
+                return "failed_tests"
+        time.sleep(min(1.0,remaining(deadline,1)))
+    return "timed_out"
 
 
 def _worker(index: int, config: dict, deadline: float, base: Path, scratch: Path, created: list, prefix: str) -> dict:
@@ -94,12 +130,24 @@ def _worker(index: int, config: dict, deadline: float, base: Path, scratch: Path
                 'model_reasoning_effort="'+config["reasoning_effort"]+'"',"-c",trust,
                 "--sandbox","workspace-write","--ask-for-approval","never"],deadline,32)
         wait_ms = max(3000,int(remaining(deadline,360)*1000)-3000)
-        _herdr(["agent","prompt",name,task_prompt(index),"--wait","--timeout",str(wait_ms)],deadline,wait_ms/1000+2)
+        try:
+            prompted = _herdr(["agent","prompt",name,task_prompt(index),"--wait","--timeout",str(wait_ms)],deadline,wait_ms/1000+2)
+        except HerdrCommandError as exc:
+            if exc.code != "agent_prompt_stalled":
+                raise
+            status = _wait_for_stalled_agent(name,index,worktree,deadline)
+            return {"task_id":index,"status":status,"elapsed_seconds":round(time.monotonic()-started,3)}
+        if prompted.get("result",{}).get("agent",{}).get("agent_status")=="blocked":
+            return {"task_id":index,"status":"agent_error","reason_code":"agent_blocked",
+                    "elapsed_seconds":round(time.monotonic()-started,3)}
         validated = validate_task(index,worktree)
         return {"task_id":index,"status":"passed" if validated["passed"] else "failed_tests",
                 "elapsed_seconds":round(time.monotonic()-started,3)}
     except CommandTimeout:
         return {"task_id":index,"status":"timed_out","elapsed_seconds":round(time.monotonic()-started,3)}
+    except HerdrCommandError as exc:
+        return {"task_id":index,"status":exc.category,"reason_code":exc.code,
+                "elapsed_seconds":round(time.monotonic()-started,3)}
     except Exception as exc:
         category = classify(str(exc))
         return {"task_id":index,"status":category,"elapsed_seconds":round(time.monotonic()-started,3)}

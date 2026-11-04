@@ -1,6 +1,6 @@
 # TermSquad Benchmark
 
-Reproducible VM benchmarking for real AI coding agents. **v1.1.2** measures CPU, cache-exceeding STREAM-style RAM throughput, fio disk sequential/random/mixed I/O and Codex/Herdr multi-file coding workloads on Ubuntu 24.04 or 26.04 LTS. This revised workload and its observed-activity gate form a distinct cohort from earlier v1.1.0 and v1.1.1 implementations.
+Reproducible VM benchmarking for real AI coding agents. **v1.1.4** measures CPU, cache-exceeding STREAM-style RAM throughput, fio disk sequential/random/mixed I/O and Codex/Herdr multi-file coding workloads on Ubuntu 24.04 or 26.04 LTS. This revised workload and its observed-activity gate form a distinct cohort from earlier v1.1.0–1.1.3 implementations.
 
 **Important:** The v1 campaign was stopped after one eligible run on each of Netcup and Contabo. Those runs are preliminary historical evidence, **not** publication-ready rankings. v1.1 is a separate statistical cohort and must not overwrite the v1 evidence.
 

@@ -4,7 +4,8 @@ REFERENCES = [
     {
         "price.js": """exports.lineTotal=(price,qty,discount=0)=>{
           if (!Number.isInteger(qty) || qty<=0) throw Error('quantity');
-          return Math.floor(price*qty*(100-discount)/100);
+          if (!Number.isInteger(price) || price<0 || !Number.isFinite(discount) || discount<0 || discount>100) throw Error('price or discount');
+          return Math.floor(price*(100-discount)/100)*qty;
         };""",
         "checkout.js": """const {lineTotal}=require('./price');
           exports.checkout=(lines,shipping=0)=>lines.reduce((sum,x)=>sum+lineTotal(x.price,x.qty,x.discount),shipping);""",

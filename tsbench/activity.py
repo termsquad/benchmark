@@ -99,8 +99,13 @@ def activity_statistics(samples: list[dict], tasks: list[dict], names: list[str]
                 or second.get("working") is None):
             current = 0.0
             continue
+        start=max(0.0, first["at"]-stage_start)
+        end=min(max(stage_elapsed,0.0),second["at"]-stage_start)
+        gap=end-start
+        if gap<=0:
+            current=0.0
+            continue
         covered += gap
-        start, end = first["at"] - stage_start, second["at"] - stage_start
         common = set(first["working"]) & set(second["working"]) & set(names)
         active = sum(any(a <= start and b >= end for a, b in intervals.get(name, []))
                      for name in common)

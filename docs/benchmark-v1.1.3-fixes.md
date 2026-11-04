@@ -109,3 +109,7 @@ No claim of real E2E validation is made by these code changes alone.
 - Historical raw archives `v112-netcup.tar.gz` and `v112-contabo.tar.gz`.
 - Official Herdr agent automation: https://herdr.dev/tui/docs/agent-automation/
 - Canonical methodology: `docs/benchmark-v1.1-spec.md`.
+
+## Subsequent pilot audit
+
+The 1.1.3 baseline was found to have validator, timing and eligibility defects before real E2E testing. The corrected, strengthened workload is versioned separately as 1.1.4; see the v1.1 specification. No 1.1.3 E2E validation is implied.

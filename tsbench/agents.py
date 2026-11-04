@@ -8,7 +8,7 @@ import time
 import uuid
 from .common import BenchmarkError, CommandTimeout, require_success, run_command, remaining, atomic_json
 from .fixtures import task_prompt, create_worktree, validate_task
-from .telemetry import Telemetry
+from .telemetry import Telemetry, resource_telemetry_coverage
 from .inventory import meminfo, psi
 from . import real_tasks
 from .activity import HerdrActivityMonitor, sustained_working_seconds, activity_statistics
@@ -60,6 +60,10 @@ def single(config: dict, deadline: float, base: Path, scratch: Path) -> dict:
     try:
         response = run_command(cmd,remaining(deadline,450),cwd=worktree,max_output=180000)
         verdict = real_tasks.validate_task(task_id,worktree) if real_mode else validate_task(task_id,worktree)
+        if verdict.get("error"):
+            return {"status":"infrastructure_error","reason":verdict["error"],
+                    "elapsed_seconds":round(time.monotonic()-start,3),
+                    "surface":"codex_exec","telemetry":telemetry.stop()}
         if real_mode and verdict["passed"] and not real_tasks.changes_within_scope(worktree,{task_id},remaining(deadline,10)):
             verdict={**verdict,"passed":False,"reason":"scope_violation"}
         outcome = ("passed" if verdict["passed"] and response["returncode"]==0 else
@@ -115,15 +119,19 @@ def _wait_for_task_result(name: str, task_id: int, worktree: Path, deadline: flo
     return "failed_tests" if last_status in ("idle","done") else "timed_out"
 
 
-def _classify_timeout(name: str, deadline: float) -> str:
+def _classify_screen(name: str, deadline: float, fallback: str) -> str:
     # Inspect transiently for explicit provider/auth errors; never save the text.
     try:
         response = run_command(["herdr","agent","read",name,"--source","recent-unwrapped","--lines","100"],
                                remaining(deadline,2),max_output=12000)
         category = classify(response["stdout"]+"\n"+response["stderr"])
-        return category if category in ("rate_limited","authentication_error") else "timed_out"
+        return category if category in ("rate_limited","authentication_error") else fallback
     except Exception:
-        return "timed_out"
+        return fallback
+
+
+def _classify_timeout(name: str, deadline: float) -> str:
+    return _classify_screen(name,deadline,"timed_out")
 
 
 def _worker(index: int, config: dict, deadline: float, base: Path, scratch: Path, created: list, prefix: str) -> dict:
@@ -196,13 +204,16 @@ def _wait_real(name: str, task_id: int, worktree: Path, deadline: float,
         status=agent.get("agent_status")
         last_status=status
         if status=="blocked":
-            return "agent_error"
+            return _classify_screen(name,deadline,"agent_error")
         if status=="working":
             saw_working=True
             terminal_since=None
             signature=None
         elif status in ("idle","done"):
-            if real_tasks.validate_task(task_id,worktree,timeout=remaining(deadline,10))["passed"]:
+            verdict=real_tasks.validate_task(task_id,worktree,timeout=remaining(deadline,10))
+            if verdict.get("error"):
+                return "infrastructure_error"
+            if verdict["passed"]:
                 return "passed"
             current=_task_code_signature(worktree,task_id)
             if current!=signature:
@@ -216,7 +227,7 @@ def _wait_real(name: str, task_id: int, worktree: Path, deadline: float,
             terminal_since=None
             signature=None
         time.sleep(min(1.0,remaining(deadline,1)))
-    return "failed_tests" if saw_working and last_status in ("idle","done") else "timed_out"
+    return "timed_out"
 
 
 def _worker_real(index: int, config: dict, deadline: float, base: Path,
@@ -259,10 +270,11 @@ def _worker_real(index: int, config: dict, deadline: float, base: Path,
                                  "--wait","--timeout",str(wait_ms)],task_deadline,wait_ms/1000+2)
                 agent=response.get("result",{}).get("agent",{})
                 if agent.get("agent_status")=="blocked":
-                    status="agent_error"
+                    status=_classify_screen(name,deadline,"agent_error")
                 else:
                     verdict=real_tasks.validate_task(task_id,worktree)
-                    status="passed" if verdict["passed"] else _wait_real(name,task_id,worktree,task_deadline)
+                    status=("infrastructure_error" if verdict.get("error") else
+                            "passed" if verdict["passed"] else _wait_real(name,task_id,worktree,task_deadline))
             except HerdrCommandError as exc:
                 if exc.code=="agent_prompt_stalled":
                     status=_wait_real(name,task_id,worktree,task_deadline,saw_working=False)
@@ -279,7 +291,7 @@ def _worker_real(index: int, config: dict, deadline: float, base: Path,
                              "started_offset_seconds":round(task_started_offset,3),
                              "finished_offset_seconds":round(task_finished-stage_start,3),
                              "elapsed_seconds":round(task_finished-task_started,3)})
-            if status in ("rate_limited","authentication_error","timed_out","agent_error","scope_violation"):
+            if status in ("rate_limited","authentication_error","timed_out","agent_error","infrastructure_error","scope_violation"):
                 break
         passed=sum(task["status"]=="passed" for task in outcomes)
         failure=next((task["status"] for task in outcomes if task["status"]!="passed"),None)
@@ -332,8 +344,12 @@ def parallel(config: dict, deadline: float, base: Path, scratch: Path,
             elapsed = time.monotonic()-stage_start
             attempted = sum(x.get("attempted",1) for x in tasks)
             passed = sum(x.get("passed",1 if x["status"]=="passed" else 0) for x in tasks)
-            constrained = any(x["status"] in ("rate_limited","authentication_error") for x in tasks)
+            all_statuses=[w.get("status") for w in tasks]+[t.get("status") for w in tasks
+                           for t in w.get("task_results",[])]
+            constrained = any(s in ("rate_limited","authentication_error") for s in all_statuses)
+            unresolved = any(s in ("agent_error","timed_out","infrastructure_error") for s in all_statuses)
             metrics = telemetry.stop()
+            resource_coverage=resource_telemetry_coverage(getattr(telemetry,"samples",[]),stage_start,elapsed)
             if raw_dir is not None:
                 atomic_json(raw_dir/("agents-"+str(count)+"-resources.json"),
                             {"samples":getattr(telemetry,"samples",[]),"summary":metrics,
@@ -363,11 +379,12 @@ def parallel(config: dict, deadline: float, base: Path, scratch: Path,
                 latency_p95=round(latencies[math.ceil(.95*len(latencies))-1],3) if latencies else None
                 planned=count*int(config["parallel"]["max_tasks_per_agent"].get(str(count),2))
             status = ("externally_constrained" if constrained else
-                      "failed_host" if (metrics["oom_kills"] or 0)>0 else
                       "inconclusive" if metrics["oom_kills"] is None else
                       "inconclusive_telemetry" if real_mode and not (
                           activity_data.get("available") and activity_data.get("complete")
-                          and occupancy["telemetry_complete"]) else
+                          and occupancy["telemetry_complete"] and resource_coverage>=0.85) else
+                      "failed_host" if (metrics["oom_kills"] or 0)>0 else
+                      "inconclusive_agent_errors" if unresolved else
                       "inconclusive" if attempted == 0 else
                       "measured")
             # The benchmark can measure a machine that cannot maintain a target.
@@ -377,6 +394,8 @@ def parallel(config: dict, deadline: float, base: Path, scratch: Path,
                 "unattributed_external_constraint" if constrained else
                 "resource_limited_guest_oom" if (metrics.get("oom_kills") or 0)>0 else
                 "instrumentation_incomplete" if status=="inconclusive_telemetry" else
+                "unattributed_agent_failure" if status=="inconclusive_agent_errors" else
+                "not_measured" if status=="inconclusive" else
                 "not_measured" if attempted==0 else
                 "sustained" if (sustained_seconds>=minimum and pass_fraction>=0.75) else
                 "below_target_observed"
@@ -386,6 +405,7 @@ def parallel(config: dict, deadline: float, base: Path, scratch: Path,
                             "capacity_status":capacity_status,
                             "pass_fraction":round(pass_fraction,4),
                             "activity_statistics":occupancy if real_mode else None,
+                            "resource_telemetry_coverage_fraction":round(resource_coverage,4),
                             "passed":passed,
                             "attempted":attempted,"workload":"multi_file" if real_mode else "micro_smoke",
                             "minimum_sustained_seconds":minimum,

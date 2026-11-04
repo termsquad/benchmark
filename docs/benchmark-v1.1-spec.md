@@ -16,7 +16,7 @@ Observed v1 limitations:
 
 ## Version and reproducibility
 
-- New suite version: **1.1.2**, a distinct cohort from 1.1.1, the unvalidated 1.1.0 implementation and v1; new benchmark commit/config/fixture digests and campaign IDs.
+- New suite version: **1.1.4**, a distinct cohort from 1.1.3, earlier v1.1 implementations and v1; new benchmark commit/config/fixture digests and campaign IDs.
 - Keep model `gpt-6.1-terra`, effort `xhigh`, and Ubuntu 24.04/26.04 x86_64.
 - Maintain 2,700 s maximum full-run budget including cleanup and evidence.
 - Do not modify any v1 run JSON, archived manifests or v1 branch to force comparability.
@@ -66,3 +66,7 @@ Technical references:
 - [fio randrw and direct I/O](https://fio.readthedocs.io/en/latest/fio_doc.html)
 
 The 1.1.2 cohort clarifies the CSV and webhook task contracts without changing their validators, and applies the existing 180-second task timeout to the entire Herdr task including follow-up validation waits. Early idle/done signals still do not cause premature failure or prompt resubmission.
+
+## v1.1.4 pilot corrections
+
+The 1.1.4 cohort strengthens the 1.1.3 discount and inventory validators, fixes their independent reference, clips activity intervals to stage bounds, and rejects missing resource telemetry, hidden external constraints and unresolved agent failures as conclusive capacity. Task timeouts before terminal confirmation and validator infrastructure errors are not coding-test failures. Fixtures or methodology changes require a distinct suite version and comparison cohort.

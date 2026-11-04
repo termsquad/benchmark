@@ -7,6 +7,25 @@ import time
 from .inventory import meminfo, psi, oom_kills
 
 
+def resource_telemetry_coverage(samples: list[dict], stage_start: float,
+                                stage_elapsed: float, max_gap: float = 7.0) -> float:
+    """Fraction supported by adjacent complete, bounded host-resource samples."""
+    required=("cpu_percent","memory_used_bytes","memory_available_bytes","swap_used_bytes",
+              "memory_psi_some_avg10","cpu_psi_some_avg10","io_psi_some_avg10")
+    covered=0.0
+    for first,second in zip(samples,samples[1:]):
+        if any(not isinstance(sample.get(key),(int,float)) for sample in (first,second)
+               for key in ("at",*required)):
+            continue
+        gap=second["at"]-first["at"]
+        if gap<=0 or gap>max_gap:
+            continue
+        start=max(stage_start,first["at"])
+        end=min(stage_start+max(stage_elapsed,0.0),second["at"])
+        covered+=max(0.0,end-start)
+    return min(1.0,covered/max(stage_elapsed,0.000001))
+
+
 def _cpu_sample():
     try:
         parts = list(map(int,Path("/proc/stat").read_text().splitlines()[0].split()[1:]))

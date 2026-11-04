@@ -121,7 +121,8 @@ def run(config_file: Path, root: Path, *, provider: str | None = None,
                     phase_ok = (value.get("status")=="validated" if section=="memory" else
                                 value.get("status") in ("passed","failed_tests","scope_violation")
                                 if section=="single" else
-                                bool(value) and all(s.get("status") in ("measured","failed_host") or
+                                bool(value) and all((s.get("status") in ("measured","failed_host") and
+                                    s.get("measurement_valid") is True) or
                                     (s.get("status")=="not_tested" and
                                      s.get("reason")=="resource_admission") for s in value)
                                 if section=="parallel" else True)
@@ -138,10 +139,12 @@ def run(config_file: Path, root: Path, *, provider: str | None = None,
             single_ok=result["agents"].get("single",{}).get("status") in (
                 "passed","failed_tests","scope_violation")
             stages=result["agents"].get("parallel",[])
-            valid_stage=any(s.get("status") in ("measured","failed_host") for s in stages)
+            valid_stage=any(s.get("status") in ("measured","failed_host") and
+                            s.get("measurement_valid") is True for s in stages)
             expected=[int(s["count"]) for s in config["parallel"]["stages"]]
             stages_complete=([s.get("concurrency") for s in stages]==expected and
-                             all(s.get("status") in ("measured","failed_host") or
+                             all((s.get("status") in ("measured","failed_host") and
+                                  s.get("measurement_valid") is True) or
                                  (s.get("status")=="not_tested" and s.get("reason")=="resource_admission")
                                  for s in stages))
             result["status"]="complete" if all_ok and single_ok and valid_stage and stages_complete else "partial"

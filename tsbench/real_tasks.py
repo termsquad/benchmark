@@ -8,7 +8,7 @@ import hashlib
 import json
 import time
 from pathlib import Path
-from .common import BenchmarkError, require_success, run_command, remaining
+from .common import BenchmarkError, CommandTimeout, require_success, run_command, remaining
 from .fixtures import create_worktree
 
 SCENARIOS = [
@@ -20,6 +20,8 @@ SCENARIOS = [
         "tests": """const {lineTotal}=require('./src/price');
 const {checkout}=require('./src/checkout');
 assert.equal(lineTotal(1999,2,10),3598);
+assert.equal(lineTotal(101,2,50),100);
+for(const [p,d] of [[-1,0],[1.5,0],[100,-1],[100,101]])assert.throws(()=>lineTotal(p,1,d));
 assert.equal(lineTotal(100,3,0),300);
 assert.throws(()=>lineTotal(100,0),/quantity/i);
 assert.equal(checkout([{price:500,qty:2,discount:10},{price:250,qty:1}],100),1250);"""
@@ -59,6 +61,10 @@ const s={a:5,b:2};
 assert.deepEqual(reserve(s,[{sku:'a',qty:2},{sku:'a',qty:1}]),{a:2,b:2});
 assert.deepEqual(s,{a:5,b:2});
 assert.throws(()=>reserve(s,[{sku:'b',qty:3}]),/stock|quantity/i);
+assert.throws(()=>reserve(s,[{sku:'a',qty:0}]),/stock|quantity/i);
+assert.throws(()=>reserve(s,[{sku:'a',qty:1.5}]),/stock|quantity/i);
+assert.throws(()=>reserve(s,[{sku:'a',qty:3},{sku:'a',qty:3}]),/stock|quantity/i);
+assert.deepEqual(s,{a:5,b:2});
 assert.throws(()=>reserve(s,[{sku:'x',qty:1}]),/unknown|missing|sku/i);
 assert.deepEqual(placeOrder(s,[{sku:'a',qty:1},{sku:'b',qty:2}]),{stock:{a:4,b:0},totalUnits:3});"""
     },
@@ -210,5 +216,7 @@ def validate_task(index: int, worktree: Path, timeout: float = 12.0) -> dict:
                              timeout,cwd=source_path,max_output=1500)
         return {"passed":response["returncode"]==0 and "PASS" in response["stdout"],
                 "elapsed_seconds":response["elapsed_seconds"]}
+    except CommandTimeout:
+        return {"passed":False,"elapsed_seconds":None,"error":"validator_timeout"}
     except Exception:
-        return {"passed":False,"elapsed_seconds":None}
+        return {"passed":False,"elapsed_seconds":None,"error":"validator_error"}

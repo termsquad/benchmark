@@ -16,6 +16,38 @@ from tsbench.inventory import oom_kills
 
 
 class RunValidityTests(unittest.TestCase):
+    def test_timeout_with_rate_limit_screen_is_external_not_host_failure(self):
+        def herdr(args, *unused):
+            if args[:2] == ["workspace", "create"]:
+                return {"result": {"workspace": {"workspace_id": "w1"},
+                                   "root_pane": {"pane_id": "w1:p1"}}}
+            if args[:2] == ["agent", "prompt"]:
+                from tsbench.agents import HerdrCommandError
+                raise HerdrCommandError("timeout", "agent_error")
+            return {}
+        with patch("tsbench.agents.create_worktree", return_value=Path('/tmp/task')), \
+             patch("tsbench.agents._herdr", side_effect=herdr), \
+             patch("tsbench.agents.run_command", return_value={"returncode": 0,
+                   "stdout": "Rate limit exceeded", "stderr": ""}):
+            result = _worker(0, {"model": "gpt-6.1-terra", "reasoning_effort": "xhigh"},
+                             time.monotonic()+60, Path('/tmp/base'), Path('/tmp'), [], "tsb")
+        self.assertEqual(result["status"], "rate_limited")
+
+    def test_herdr_timeout_is_recorded_as_timeout(self):
+        def herdr(args, *unused):
+            if args[:2] == ["workspace", "create"]:
+                return {"result": {"workspace": {"workspace_id": "w1"},
+                                   "root_pane": {"pane_id": "w1:p1"}}}
+            if args[:2] == ["agent", "prompt"]:
+                from tsbench.agents import HerdrCommandError
+                raise HerdrCommandError("timeout", "agent_error")
+            return {}
+        with patch("tsbench.agents.create_worktree", return_value=Path('/tmp/task')), \
+             patch("tsbench.agents._herdr", side_effect=herdr):
+            result = _worker(0, {"model": "gpt-6.1-terra", "reasoning_effort": "xhigh"},
+                             time.monotonic()+60, Path('/tmp/base'), Path('/tmp'), [], "tsb")
+        self.assertEqual(result["status"], "timed_out")
+
     def test_early_done_does_not_fail_a_task_before_its_validator_passes(self):
         calls = []
         def herdr(args, *unused):

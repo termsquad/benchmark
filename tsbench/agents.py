@@ -108,6 +108,17 @@ def _wait_for_task_result(name: str, task_id: int, worktree: Path, deadline: flo
     return "failed_tests" if last_status in ("idle","done") else "timed_out"
 
 
+def _classify_timeout(name: str, deadline: float) -> str:
+    # Inspect transiently for explicit provider/auth errors; never save the text.
+    try:
+        response = run_command(["herdr","agent","read",name,"--source","recent-unwrapped","--lines","100"],
+                               remaining(deadline,2),max_output=12000)
+        category = classify(response["stdout"]+"\n"+response["stderr"])
+        return category if category in ("rate_limited","authentication_error") else "timed_out"
+    except Exception:
+        return "timed_out"
+
+
 def _worker(index: int, config: dict, deadline: float, base: Path, scratch: Path, created: list, prefix: str) -> dict:
     name = (prefix+str(index).zfill(2))[:31]
     started = time.monotonic()
@@ -144,7 +155,8 @@ def _worker(index: int, config: dict, deadline: float, base: Path, scratch: Path
     except CommandTimeout:
         return {"task_id":index,"status":"timed_out","elapsed_seconds":round(time.monotonic()-started,3)}
     except HerdrCommandError as exc:
-        return {"task_id":index,"status":exc.category,"reason_code":exc.code,
+        status = _classify_timeout(name,deadline) if exc.code=="timeout" else exc.category
+        return {"task_id":index,"status":status,"reason_code":exc.code,
                 "elapsed_seconds":round(time.monotonic()-started,3)}
     except Exception as exc:
         category = classify(str(exc))

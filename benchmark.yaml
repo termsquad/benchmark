@@ -51,12 +51,18 @@
     ],
     "max_memory_psi_some": 25,
     "minimum_free_mib_per_agent": 320,
-    "minimum_observed_seconds": 150
+    "minimum_observed_seconds": 120,
+    "max_tasks_per_agent": {
+      "4": 4,
+      "8": 3,
+      "16": 2
+    }
   },
   "price": {
     "monthly_amount": null,
     "currency": null,
     "source_url": null,
     "includes_mandatory_fees": null
-  }
+  },
+  "agent_workload": "real"
 }

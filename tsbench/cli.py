@@ -47,7 +47,10 @@ def main(argv=None):
         if args.command=="setup":
             config=args.config.expanduser().absolute()
             cfg=load_json(config)
-            state=initialize(root,cfg["suite_version"],sha256_file(config))
+            from .common import run_command
+            revision=run_command(["git","-C",str(config.parent),"rev-parse","HEAD"],5) if shutil.which("git") else {"returncode":1}
+            benchmark_commit=revision.get("stdout","").strip() if revision["returncode"]==0 else None
+            state=initialize(root,cfg["suite_version"],sha256_file(config),benchmark_commit)
             # Copy the immutable config into our own state so benchmark runs can be
             # invoked later from any directory. Never overwrite a different config.
             pinned=root/"benchmark.yaml"
@@ -55,9 +58,6 @@ def main(argv=None):
                 shutil.copy2(config,pinned)
             elif sha256_file(pinned)!=sha256_file(config):
                 raise BenchmarkError("Pinned campaign configuration differs")
-            from .common import run_command
-            revision=run_command(["git","-C",str(config.parent),"rev-parse","HEAD"],5) if shutil.which("git") else {"returncode":1}
-            benchmark_commit=revision.get("stdout","").strip() if revision["returncode"]==0 else None
             atomic_json(root/"ownership.json",{"root":str(root),"benchmark_commit":benchmark_commit,"managed":["benchmark.yaml","campaign.json",
                 "results","scratch","tmp","venv","ownership.json"]})
             output={"status":"prepared","campaign_id":state["campaign_id"],

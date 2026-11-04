@@ -59,11 +59,12 @@ def run(config_file: Path, root: Path, *, provider: str | None = None,
     state=None
     try:
         with exclusive(root):
-            state=initialize(root,config["suite_version"],sha256_file(config_file))
-            result["campaign_id"]=state["campaign_id"]
             ownership_path=root/"ownership.json"
+            benchmark_commit=load_json(ownership_path).get("benchmark_commit") if ownership_path.exists() else None
+            state=initialize(root,config["suite_version"],sha256_file(config_file),benchmark_commit)
+            result["campaign_id"]=state["campaign_id"]
             if ownership_path.exists():
-                result["provenance"]["benchmark_commit"]=load_json(ownership_path).get("benchmark_commit")
+                result["provenance"]["benchmark_commit"]=benchmark_commit
             section="preflight"
             elapsed=time.monotonic()
             phase_deadline=min(total_deadline,elapsed+config["phase_seconds"][section])
@@ -97,11 +98,11 @@ def run(config_file: Path, root: Path, *, provider: str | None = None,
                                    phase_start+config["phase_seconds"][section])
                 try:
                     if section=="disk":
-                        value=fn(config,phase_deadline,scratch/"disk")
+                        value=fn(config,phase_deadline,scratch/"disk",out/"raw")
                     elif section=="single" or section=="parallel":
                         value=fn(config,phase_deadline,base,scratch)
                     else:
-                        value=fn(config,phase_deadline)
+                        value=fn(config,phase_deadline,out/"raw")
                     if section in ("single","parallel"):
                         result["agents"][section]=value
                     else:

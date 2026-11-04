@@ -19,7 +19,7 @@ def verified(path: Path) -> dict:
 
 def signature(item: dict) -> tuple:
     m,p = item["machine"], item["provenance"]
-    return (item["suite_version"],p["suite_config_sha256"],p["fixture_sha256"],
+    return (item["suite_version"],p.get("benchmark_commit"),p["suite_config_sha256"],p["fixture_sha256"],
             m["architecture"],m["os_version"],p["codex_version"],p["herdr_version"],
             p["model"],p["reasoning_effort"],m.get("tools",{}).get("node"),
             m.get("tools",{}).get("fio"),m.get("tools",{}).get("sysbench"))

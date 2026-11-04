@@ -11,6 +11,32 @@ from tsbench.report import write_artifacts
 
 
 class BasicTests(unittest.TestCase):
+    def test_recording_another_run_invalidates_previous_export_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            state=initialize(root,"1.0","abc")
+            state["export_receipt"]={"sha256":"previous"}
+            atomic_json(root/"campaign.json",state)
+            record(root,{"run_id":"new","status":"partial",
+                         "finished_at":"2026-11-03T10:00:00+00:00"})
+            self.assertNotIn("export_receipt",load_json(root/"campaign.json"))
+
+    def test_new_commit_starts_new_cohort_without_losing_prior_runs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            initialize(root,"1.0","abc")
+            run={"run_id":"old","status":"complete","finished_at":"2026-11-03T10:00:00+00:00",
+                 "provenance":{"benchmark_commit":"old-revision"}}
+            folder=root/"results"/"old"
+            folder.mkdir(parents=True)
+            (folder/"results.json").write_text(json.dumps(run))
+            record(root,run)
+            state=initialize(root,"1.0","abc",benchmark_commit="new-revision")
+            self.assertEqual(state["eligible_runs"],[])
+            self.assertEqual(state["all_runs"],["old"])
+            self.assertEqual(state["prior_cohorts"][0]["eligible_runs"],["old"])
+            self.assertEqual(state["benchmark_commit"],"new-revision")
+
     def test_config(self):
         cfg=load_json(Path("benchmark.yaml"))
         self.assertEqual(cfg["maximum_seconds"],2700)

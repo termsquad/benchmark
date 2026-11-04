@@ -123,6 +123,27 @@ class CampaignUninstallTests(unittest.TestCase):
 
 
 class ComparisonTests(unittest.TestCase):
+    def test_different_benchmark_commits_cannot_share_a_cohort(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = root / "benchmark.yaml"
+            config.write_text("{}")
+            files = []
+            for i in range(2):
+                payload = {"run_id": str(i), "suite_version": "1.0", "status": "complete",
+                           "machine": {"architecture": "x86_64", "os_version": "26.04", "tools": {}},
+                           "provenance": {"benchmark_commit": str(i), "suite_config_sha256": "abc",
+                                          "fixture_sha256": "abc", "codex_version": "1", "herdr_version": "1",
+                                          "model": "gpt-6.1-terra", "reasoning_effort": "xhigh"},
+                           "cpu": {}, "memory": {}, "disk": {},
+                           "agents": {"single": {}, "parallel": []},
+                           "warnings": [], "errors": [], "price": {}, "elapsed_seconds": 1}
+                folder = root / str(i)
+                write_artifacts(folder, payload, config)
+                files.append(folder / "results.json")
+            with self.assertRaises(BenchmarkError):
+                compare(files)
+
     def test_three_runs_without_time_separation_are_not_publication_eligible(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

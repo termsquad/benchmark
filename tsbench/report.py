@@ -41,6 +41,8 @@ def render(result: dict) -> str:
     rows += ["","## Validity and limitations","",
              "Agent wall times include remote model latency. A rate-limited result is not evidence of poor VM performance.",
              "A validated concurrency stage is not a theoretical maximum supported by the VM."]
+    if memory.get("status")=="limited":
+        rows.append("Memory throughput is synthetic and limited: its working set may fit CPU cache.")
     for warning in result.get("warnings",[]):
         rows.append("- Warning: "+str(warning))
     for error in result.get("errors",[]):
@@ -54,7 +56,13 @@ def write_artifacts(folder: Path, result: dict, config_file: Path) -> None:
     (folder/'raw').mkdir(exist_ok=True)
     atomic_json(folder/"results.json",result)
     (folder/"report.md").write_text(render(result),encoding="utf-8")
+    files = {name:sha256_file(folder/name) for name in ("results.json","report.md")}
+    for path in sorted((folder/"raw").rglob("*")):
+        if path.is_symlink():
+            raise ValueError("Symlinks are not permitted in raw evidence")
+        if path.is_file():
+            files[path.relative_to(folder).as_posix()] = sha256_file(path)
     manifest = {"run_id":result["run_id"],"suite_version":result["suite_version"],
-                "files":{name:sha256_file(folder/name) for name in ("results.json","report.md")},
+                "files":files,
                 "config_sha256":sha256_file(config_file)}
     atomic_json(folder/"manifest.json",manifest)

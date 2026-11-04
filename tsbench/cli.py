@@ -6,7 +6,7 @@ from pathlib import Path
 import shutil
 import sys
 from .common import BenchmarkError, atomic_json, load_json, sha256_file
-from .campaign import state_dir, state_file, initialize
+from .campaign import state_dir, state_file, initialize, abort_campaign
 from .inventory import inventory, verify_host, herdr_server_ready
 from .runner import run as run_benchmark
 from .compare import compare as compare_runs
@@ -31,10 +31,12 @@ def parser():
     cmp=sub.add_parser("compare",help="Compare verified JSON results in compatible cohorts")
     cmp.add_argument("results",type=Path,nargs="+")
     sub.add_parser("status",help="Show local 3-run campaign progress")
+    sub.add_parser("abort",help="Stop campaign permanently; preserve and export all existing runs")
     exp=sub.add_parser("export",help="Build a checksum-verifiable campaign archive")
     exp.add_argument("--output",type=Path,help="Archive path; defaults to managed exports directory")
     delete=sub.add_parser("uninstall",help="Remove only benchmark-owned installation assets")
     delete.add_argument("--purge",action="store_true",help="Remove local results after confirmed external export")
+    delete.add_argument("--aborted",action="store_true",help="Allow purge of an explicitly aborted campaign")
     delete.add_argument("--campaign")
     delete.add_argument("--verified-export")
     return p
@@ -88,6 +90,10 @@ def main(argv=None):
             output={"status":result["status"],"run_id":result["run_id"],"results":str(root/"results"/result["run_id"])}
         elif args.command=="compare":
             output=compare_runs(args.results)
+        elif args.command=="abort":
+            from .runner import exclusive
+            with exclusive(root):
+                output=abort_campaign(root)
         elif args.command=="status":
             output=load_json(state_file(root))
             output["ready_for_export"]=len(output["eligible_runs"])>=3
@@ -96,7 +102,7 @@ def main(argv=None):
             output=export_campaign(root,destination)
             output["instructions"]="Copy archive to a separate machine, verify SHA256 there, then invoke uninstall --purge with matching campaign and digest"
         elif args.command=="uninstall":
-            output=uninstall(root,args.purge,args.campaign,args.verified_export)
+            output=uninstall(root,args.purge,args.campaign,args.verified_export,args.aborted)
         else:
             raise BenchmarkError("Unknown command")
         print(json.dumps(output,indent=2,sort_keys=True))

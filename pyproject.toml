@@ -18,5 +18,8 @@ tsbench = "tsbench.cli:main"
 [tool.setuptools.packages.find]
 include = ["tsbench*"]
 
+[tool.setuptools.package-data]
+tsbench = ["stream.c"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

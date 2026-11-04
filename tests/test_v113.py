@@ -113,5 +113,52 @@ class FixtureAndReportTests(unittest.TestCase):
         self.assertIn("longest continuous 12",md)
 
 
+class RunValiditySeparationTests(unittest.TestCase):
+    def test_measured_below_target_stages_allow_complete_run(self):
+        from tsbench.runner import run
+        from tsbench.common import load_json
+        config=Path(__file__).resolve().parents[1]/"benchmark.yaml"
+        stages=[{"concurrency":n,"status":"measured","measurement_valid":True,
+                 "capacity_status":"below_target_observed","attempted":n,
+                 "passed":max(1,n//2),"throughput_per_minute":1.0}
+                for n in (4,8,16)]
+        machine={"tools":{},"pressure":{"memory":{}}}
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("tsbench.runner.inventory",return_value=machine), \
+             patch("tsbench.runner.verify_host",return_value=[]), \
+             patch("tsbench.runner.verify_memory_build",return_value=({},[])), \
+             patch("tsbench.runner.run_command",return_value={"returncode":0,"stdout":'{"running":true}'}), \
+             patch("tsbench.runner.create_real_base",return_value=Path(tmp)), \
+             patch("tsbench.runner.cpu",return_value={}), \
+             patch("tsbench.runner.memory",return_value={"status":"validated"}), \
+             patch("tsbench.runner.disk",return_value={}), \
+             patch("tsbench.runner.single",return_value={"status":"passed"}), \
+             patch("tsbench.runner.parallel",return_value=stages):
+            root=Path(tmp)/"state"
+            result=run(config,root)
+            self.assertEqual(result["status"],"complete")
+            self.assertEqual(load_json(root/"campaign.json")["eligible_runs"],[result["run_id"]])
+
+    def test_inconclusive_instrumentation_still_blocks_full_run(self):
+        from tsbench.runner import run
+        config=Path(__file__).resolve().parents[1]/"benchmark.yaml"
+        stages=[{"concurrency":4,"status":"measured"},
+                {"concurrency":8,"status":"inconclusive_telemetry"},
+                {"concurrency":16,"status":"measured"}]
+        machine={"tools":{},"pressure":{"memory":{}}}
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("tsbench.runner.inventory",return_value=machine), \
+             patch("tsbench.runner.verify_host",return_value=[]), \
+             patch("tsbench.runner.verify_memory_build",return_value=({},[])), \
+             patch("tsbench.runner.run_command",return_value={"returncode":0,"stdout":'{"running":true}'}), \
+             patch("tsbench.runner.create_real_base",return_value=Path(tmp)), \
+             patch("tsbench.runner.cpu",return_value={}), \
+             patch("tsbench.runner.memory",return_value={"status":"validated"}), \
+             patch("tsbench.runner.disk",return_value={}), \
+             patch("tsbench.runner.single",return_value={"status":"passed"}), \
+             patch("tsbench.runner.parallel",return_value=stages):
+            self.assertEqual(run(config,Path(tmp)/"state")["status"],"partial")
+
+
 if __name__=="__main__":
     unittest.main()

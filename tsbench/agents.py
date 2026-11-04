@@ -170,20 +170,53 @@ def _worker(index: int, config: dict, deadline: float, base: Path, scratch: Path
         return {"task_id":index,"status":category,"elapsed_seconds":round(time.monotonic()-started,3)}
 
 
-def _wait_real(name: str, task_id: int, worktree: Path, deadline: float) -> str:
-    """Preserve the v1 Codex fix: no duplicate prompts on early 'done' states."""
+def _task_code_signature(worktree: Path, task_id: int) -> tuple:
+    """File metadata only, never retain an agent's source code or terminal output."""
+    root=worktree/"tasks"/str(task_id).zfill(2)/"src"
+    try:
+        return tuple(sorted((p.name,p.stat().st_mtime_ns,p.stat().st_size)
+                            for p in root.glob("*.js") if p.is_file()))
+    except OSError:
+        return ()
+
+
+def _wait_real(name: str, task_id: int, worktree: Path, deadline: float,
+               saw_working: bool = True, settled_grace_seconds: float = 12.0) -> str:
+    """Confirm terminal idle/done with stable source, without resending the prompt.
+
+    Herdr prompt --wait observes activity but does not identify specific turns.
+    Premature idle/done is tolerated for a bounded grace period, while an
+    unconfirmed stalled prompt is never declared a failed coding task.
+    """
     last_status=None
+    terminal_since=None
+    signature=None
     while remaining(deadline,1)>0:
         agent=_herdr(["agent","get",name],deadline,5).get("result",{}).get("agent",{})
         status=agent.get("agent_status")
         last_status=status
         if status=="blocked":
             return "agent_error"
-        if status in ("idle","done") and real_tasks.validate_task(
-                task_id,worktree,timeout=remaining(deadline,10))["passed"]:
-            return "passed"
+        if status=="working":
+            saw_working=True
+            terminal_since=None
+            signature=None
+        elif status in ("idle","done"):
+            if real_tasks.validate_task(task_id,worktree,timeout=remaining(deadline,10))["passed"]:
+                return "passed"
+            current=_task_code_signature(worktree,task_id)
+            if current!=signature:
+                signature=current
+                terminal_since=time.monotonic()
+            elif terminal_since is None:
+                terminal_since=time.monotonic()
+            elif saw_working and time.monotonic()-terminal_since>=settled_grace_seconds:
+                return "failed_tests"
+        else:
+            terminal_since=None
+            signature=None
         time.sleep(min(1.0,remaining(deadline,1)))
-    return "failed_tests" if last_status in ("idle","done") else "timed_out"
+    return "failed_tests" if saw_working and last_status in ("idle","done") else "timed_out"
 
 
 def _worker_real(index: int, config: dict, deadline: float, base: Path,
@@ -232,7 +265,7 @@ def _worker_real(index: int, config: dict, deadline: float, base: Path,
                     status="passed" if verdict["passed"] else _wait_real(name,task_id,worktree,task_deadline)
             except HerdrCommandError as exc:
                 if exc.code=="agent_prompt_stalled":
-                    status=_wait_real(name,task_id,worktree,task_deadline)
+                    status=_wait_real(name,task_id,worktree,task_deadline,saw_working=False)
                 elif exc.code=="timeout":
                     status=_classify_timeout(name,deadline)
                 else:

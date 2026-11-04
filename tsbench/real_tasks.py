@@ -14,7 +14,7 @@ from .fixtures import create_worktree
 SCENARIOS = [
     {
         "title": "Order totals and checkout",
-        "instructions": "Implement cents-safe line pricing, percentage discount floor rounding, totals with optional shipping, and reject invalid quantities. Make pricing and checkout modules work together.",
+        "instructions": "Implement lineTotal(priceCents, qty, discountPercent=0): require positive integer qty, nonnegative integer cents and a discount percentage 0..100. For each unit compute floor(priceCents*(100-discountPercent)/100), then multiply that discounted unit price by qty. Do not round the total before splitting units. checkout sums discounted line totals and adds shippingCents; use the same arithmetic in both modules. Reject invalid quantities with an Error mentioning quantity.",
         "files": {"price.js": "exports.lineTotal=(price,qty,discount=0)=>{throw Error('TODO')};",
                   "checkout.js": "exports.checkout=(lines,shipping=0)=>{throw Error('TODO')};"},
         "tests": """const {lineTotal}=require('./src/price');
@@ -50,7 +50,7 @@ assert.deepEqual(importCustomers('id,email\\n'),[]);"""
     },
     {
         "title": "Atomic inventory reservation",
-        "instructions": "Implement immutable reserve(stock,items) returning an updated object; coalesce repeated SKU quantities and reject unavailable products or insufficient stock without mutating input. placeOrder returns {stock,totalUnits}.",
+        "instructions": "Implement immutable reserve(stock,items) returning an updated object; coalesce repeated SKU quantities before checking available inventory. Each qty must be a positive integer. If the SKU is missing, throw Error mentioning sku or unknown; if inventory is insufficient, throw Error mentioning stock or quantity. Never mutate inputs or partially reserve an invalid order. placeOrder calls reserve and returns {stock,totalUnits}, summing quantities including duplicates.",
         "files": {"stock.js": "exports.reserve=(stock,items)=>{throw Error('TODO')};",
                   "order.js": "exports.placeOrder=(stock,items)=>{throw Error('TODO')};"},
         "tests": """const {reserve}=require('./src/stock');
